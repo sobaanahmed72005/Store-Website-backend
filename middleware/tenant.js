@@ -7,6 +7,11 @@ const BASE_HOSTS = ['localhost', '127.0.0.1'];
 // connected to. X-Store-Slug is a development-only convenience for simulating multiple
 // tenants locally without setting up real subdomain DNS.
 function extractSlug(req) {
+  // Single-store deployments set this so tenant resolution doesn't depend on guessing the
+  // slug from whatever domain the request happened to arrive on (which breaks the moment the
+  // frontend and backend live on different domains, e.g. yourdomain.com vs api.yourdomain.com).
+  if (process.env.DEFAULT_STORE_SLUG) return process.env.DEFAULT_STORE_SLUG;
+
   if (process.env.NODE_ENV !== 'production') {
     const headerSlug = req.headers['x-store-slug'];
     if (headerSlug) return String(headerSlug).toLowerCase().trim();
