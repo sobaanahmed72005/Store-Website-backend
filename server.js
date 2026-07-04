@@ -19,10 +19,8 @@ import currencyRouter from './routes/currency.js';
 import discountCodesRouter from './routes/discountCodes.js';
 import newsletterRouter from './routes/newsletter.js';
 import contactRouter from './routes/contact.js';
-import paymobRouter from './routes/paymob.js';
 import { resolveBusiness } from './middleware/tenant.js';
 import { getRobotsTxt, getSitemap } from './controllers/seoController.js';
-import { webhook as paymobWebhook } from './controllers/paymobController.js';
 import { sendReviewReminders } from './utils/reviewReminder.js';
 import { syncLeopardsTracking } from './utils/leopardsSync.js';
 import { pruneOldSessions } from './utils/sessions.js';
@@ -71,9 +69,6 @@ app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 app.get('/robots.txt', resolveBusiness, getRobotsTxt);
 app.get('/sitemap.xml', resolveBusiness, getSitemap);
 
-// Paymob webhook must be registered BEFORE resolveBusiness — Paymob won't include store context
-app.post('/api/payments/paymob/webhook', paymobWebhook);
-
 app.use('/api', resolveBusiness);
 
 app.use('/api/categories', categoriesRouter);
@@ -89,7 +84,6 @@ app.use('/api/currency', currencyRouter);
 app.use('/api/discount-codes', discountCodesRouter);
 app.use('/api/newsletter', newsletterRouter);
 app.use('/api/contact', contactRouter);
-app.use('/api/payments/paymob', paymobRouter);
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Not found' });

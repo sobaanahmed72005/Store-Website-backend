@@ -18,7 +18,6 @@ const PAYMENT_LABEL = {
   jazzcash:      'JazzCash',
   easypaisa:     'EasyPaisa',
   cod:           'Cash on Delivery',
-  paymob:        'Paymob (Online)',
 }
 
 async function fetchImageBuffer(url) {

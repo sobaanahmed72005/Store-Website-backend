@@ -13,7 +13,7 @@
     "db:migrate-token-version": "node sql/migrate-token-version.js",
     "db:migrate-discount-guard": "node sql/migrate-discount-guard.js",
     "db:migrate-sessions": "node sql/migrate-sessions.js",
-    "db:migrate-paymob": "node sql/migrate-paymob.js"
+    "db:migrate-payment-proof": "node sql/migrate-payment-proof.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",

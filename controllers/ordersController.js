@@ -6,39 +6,36 @@ import { getCourierSettings, buildTrackingUrl, bookLeopardsPacket, isLeopardsPro
 import { generateInvoicePdf } from '../utils/invoiceGenerator.js';
 import { getEmailTemplate, applyPlaceholders } from '../utils/emailLoader.js';
 import { logAudit } from '../utils/auditLog.js';
+import { handleImageUpload } from '../utils/uploadHandler.js';
+
+export const uploadPaymentProof = handleImageUpload;
 
 function effectivePrice(product) {
   return product.is_on_sale && product.discount_price != null ? Number(product.discount_price) : Number(product.price);
 }
 
 export async function createOrder(req, res) {
-  const { shipping_name, shipping_address, shipping_city, phone, email, notes, items, discount_code, payment_method, payment_reference } = req.body;
+  const { shipping_name, shipping_address, shipping_city, phone, email, notes, items, discount_code, payment_method, payment_reference, payment_proof_image } = req.body;
   const user_id = req.user.id;
   if (!shipping_address || !phone || !items?.length) {
     return res.status(400).json({ error: 'shipping_address, phone and items are required' });
   }
 
-  let isPaymob = false;
-  if (payment_method === 'paymob') {
-    const [gwRows] = await pool.query(
-      "SELECT enabled, api_key, secret_key, hmac_secret, integration_ids FROM payment_gateways WHERE business_id = ? AND provider = 'paymob'",
-      [req.business.id]
-    );
-    if (!gwRows.length || !gwRows[0].enabled || !gwRows[0].api_key || !gwRows[0].secret_key || !gwRows[0].hmac_secret || !gwRows[0].integration_ids) {
-      return res.status(400).json({ error: 'Paymob is not enabled for this store' });
-    }
-    isPaymob = true;
-  } else {
-    const [paymentRows] = await pool.query(
-      'SELECT value FROM site_content WHERE business_id = ? AND content_key = ?',
-      [req.business.id, 'payment-settings']
-    );
-    const paymentMethods = paymentRows.length > 0
-      ? (typeof paymentRows[0].value === 'string' ? JSON.parse(paymentRows[0].value) : paymentRows[0].value).methods
-      : {};
-    if (!payment_method || !paymentMethods?.[payment_method]?.enabled) {
-      return res.status(400).json({ error: 'Please select a valid payment method' });
-    }
+  const [paymentRows] = await pool.query(
+    'SELECT value FROM site_content WHERE business_id = ? AND content_key = ?',
+    [req.business.id, 'payment-settings']
+  );
+  const paymentMethods = paymentRows.length > 0
+    ? (typeof paymentRows[0].value === 'string' ? JSON.parse(paymentRows[0].value) : paymentRows[0].value).methods
+    : {};
+  if (!payment_method || !paymentMethods?.[payment_method]?.enabled) {
+    return res.status(400).json({ error: 'Please select a valid payment method' });
+  }
+  // Cash on Delivery is settled at the door, so there's nothing to verify up front — every
+  // other method is an unverifiable manual transfer, so a reference AND proof screenshot are
+  // both mandatory: the reference alone is just a typed-in claim, easy to fabricate or reuse.
+  if (payment_method !== 'cod' && (!payment_reference?.trim() || !payment_proof_image)) {
+    return res.status(400).json({ error: 'A transaction reference and payment screenshot are required for this payment method' });
   }
 
   const MAX_QTY_PER_LINE = 999;
@@ -126,14 +123,14 @@ export async function createOrder(req, res) {
     }
 
     const totalAmount = subtotal + shippingFee - discountAmount;
-    const orderStatus = isPaymob ? 'pending_payment' : 'pending';
+    const orderStatus = 'pending';
     const [orderResult] = await connection.query(
-      `INSERT INTO orders (business_id, user_id, total_amount, shipping_fee, discount_code, discount_amount, shipping_name, shipping_address, shipping_city, phone, email, notes, payment_method, payment_reference, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO orders (business_id, user_id, total_amount, shipping_fee, discount_code, discount_amount, shipping_name, shipping_address, shipping_city, phone, email, notes, payment_method, payment_reference, payment_proof_image, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         req.business.id, user_id, totalAmount, shippingFee, resolvedDiscount?.code ?? null, discountAmount,
         shipping_name ?? null, shipping_address, shipping_city ?? null, phone, email ?? null, notes ?? null,
-        payment_method, payment_reference ?? null, orderStatus,
+        payment_method, payment_reference ?? null, payment_proof_image ?? null, orderStatus,
       ]
     );
     const orderId = orderResult.insertId;
@@ -175,7 +172,7 @@ export async function createOrder(req, res) {
           { label: 'Order Number', value: `#${orderId}`, bold: true },
           { label: 'Items', value: orderItems.length },
           { label: 'Total', value: `Rs. ${Number(totalAmount).toLocaleString()}` },
-          { label: 'Payment', value: payment_method === 'cod' ? 'Cash on Delivery' : payment_method === 'paymob' ? 'Paymob (Online)' : 'Bank / Wallet Transfer' },
+          { label: 'Payment', value: payment_method === 'cod' ? 'Cash on Delivery' : 'Bank / Wallet Transfer' },
           { label: 'Shipping to', value: `${shipping_city || ''}${shipping_city ? ', ' : ''}${shipping_address}` },
         ]) +
         emailParagraph("You'll receive another email as soon as your order is confirmed. If you have any questions, simply reply to this email.") +
@@ -207,10 +204,20 @@ export async function getOrdersByUser(req, res) {
   res.json(orders);
 }
 
+// A payment_reference reused across more than one order is a red flag for manual transfer
+// methods — customers have no way to prove a reference is theirs alone, so a screenshot could
+// be paired with a reference that was already claimed by an earlier (possibly unrelated) order.
+const DUPLICATE_REFERENCE_SUBQUERY = `
+  (SELECT COUNT(*) FROM orders o2
+   WHERE o2.business_id = o.business_id AND o2.payment_reference = o.payment_reference)
+`;
+
 export async function getAllOrders(req, res) {
   const [orders] = await pool.query(
     `SELECT o.*, u.name AS customer_name, u.email AS customer_email,
-            (SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.id) AS item_count
+            (SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.id) AS item_count,
+            CASE WHEN o.payment_reference IS NOT NULL AND ${DUPLICATE_REFERENCE_SUBQUERY} > 1
+                 THEN 1 ELSE 0 END AS is_duplicate_reference
      FROM orders o JOIN users u ON o.user_id = u.id
      WHERE o.business_id = ?
      ORDER BY o.created_at DESC`,
@@ -234,7 +241,9 @@ export async function getNewOrders(req, res) {
 
 export async function getOrderById(req, res) {
   const [orders] = await pool.query(
-    `SELECT o.*, u.name AS customer_name, u.email AS customer_email
+    `SELECT o.*, u.name AS customer_name, u.email AS customer_email,
+            CASE WHEN o.payment_reference IS NOT NULL AND ${DUPLICATE_REFERENCE_SUBQUERY} > 1
+                 THEN 1 ELSE 0 END AS is_duplicate_reference
      FROM orders o JOIN users u ON o.user_id = u.id WHERE o.business_id = ? AND o.id = ?`,
     [req.business.id, req.params.id]
   );

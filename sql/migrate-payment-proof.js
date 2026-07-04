@@ -4,8 +4,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const COLUMNS = [
-  { name: 'hmac_secret', ddl: 'VARCHAR(255) NULL' },
-  { name: 'integration_ids', ddl: 'VARCHAR(255) NULL' },
+  { name: 'payment_proof_image', ddl: 'VARCHAR(255) NULL' },
 ];
 
 async function addMissingColumns(connection, table) {
@@ -34,13 +33,13 @@ async function run() {
     database: process.env.DB_NAME,
   });
 
-  await addMissingColumns(connection, 'payment_gateways');
+  await addMissingColumns(connection, 'orders');
 
   await connection.end();
-  console.log('Paymob migration complete.');
+  console.log('Payment proof migration complete.');
 }
 
 run().catch((err) => {
-  console.error('Paymob migration failed:', err);
+  console.error('Payment proof migration failed:', err);
   process.exit(1);
 });

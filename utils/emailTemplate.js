@@ -138,7 +138,6 @@ const PAYMENT_LABEL_MAP = {
   jazzcash:      'JazzCash',
   easypaisa:     'EasyPaisa',
   cod:           'Cash on Delivery',
-  paymob:        'Paymob (Online)',
 };
 
 export function emailInvoiceBlock(order, items) {

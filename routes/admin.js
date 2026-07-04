@@ -56,7 +56,6 @@ import {
   adminSend as adminSendNewsletter,
 } from '../controllers/newsletterController.js';
 import { adminGet as adminGetCourier, adminUpdate as adminUpdateCourier, adminTestConnection as adminTestCourierConnection } from '../controllers/courierController.js';
-import { adminGet as adminGetPaymob, adminUpdate as adminUpdatePaymob } from '../controllers/paymobController.js';
 import {
   adminList as adminListPromoEmails,
   adminCreate as adminCreatePromoEmail,
@@ -133,9 +132,6 @@ router.post('/newsletter/send', adminSendNewsletter);
 router.get('/courier-settings', adminGetCourier);
 router.put('/courier-settings', adminUpdateCourier);
 router.post('/courier-settings/test', adminTestCourierConnection);
-
-router.get('/payment-gateways/paymob', adminGetPaymob);
-router.put('/payment-gateways/paymob', adminUpdatePaymob);
 
 router.get('/promo-emails', adminListPromoEmails);
 router.post('/promo-emails', adminCreatePromoEmail);

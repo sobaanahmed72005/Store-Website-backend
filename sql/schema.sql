@@ -132,8 +132,11 @@ CREATE TABLE IF NOT EXISTS orders (
   tracking_number VARCHAR(100),
   payment_method VARCHAR(30),
   payment_reference VARCHAR(150),
-  -- Unused since the switch to Paymob (which is looked up by order id directly via
-  -- special_reference, not a stored token). Left in place rather than dropped.
+  -- Screenshot of the customer's bank/wallet transfer, uploaded at checkout for manual
+  -- payment methods — lets admin cross-check the claimed reference against actual proof
+  -- instead of trusting an unverifiable typed-in transaction ID alone.
+  payment_proof_image VARCHAR(255),
+  -- Unused leftover from a removed gateway integration. Left in place rather than dropped.
   safepay_token VARCHAR(255),
   delivered_at DATETIME NULL,
   review_reminder_sent_at DATETIME NULL,
@@ -264,6 +267,8 @@ CREATE TABLE IF NOT EXISTS newsletter_subscribers (
   FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE
 );
 
+-- Generic per-provider online payment gateway config, reusable for whichever gateway is
+-- integrated (api_key/secret_key are encrypted at rest — see backend/utils/crypto.js).
 CREATE TABLE IF NOT EXISTS payment_gateways (
   id INT AUTO_INCREMENT PRIMARY KEY,
   business_id INT NOT NULL,
@@ -272,13 +277,6 @@ CREATE TABLE IF NOT EXISTS payment_gateways (
   sandbox TINYINT(1) NOT NULL DEFAULT 1,
   api_key VARCHAR(255),
   secret_key VARCHAR(255),
-  -- Paymob-specific: api_key above stores the encrypted Public Key, secret_key stores the
-  -- encrypted Secret Key (Authorization: Token header). hmac_secret is a THIRD, separate key
-  -- Paymob issues specifically for verifying transaction webhook signatures — never the same
-  -- value as secret_key. integration_ids is a comma-separated list of Paymob Integration IDs
-  -- (from the merchant's Paymob dashboard, one per enabled payment channel e.g. card/wallet).
-  hmac_secret VARCHAR(255),
-  integration_ids VARCHAR(255),
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY (business_id, provider),
   FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE
