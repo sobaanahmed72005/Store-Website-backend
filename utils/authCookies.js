@@ -2,13 +2,15 @@ const isProd = process.env.NODE_ENV === 'production';
 
 export const AUTH_COOKIE = 'cz_token';
 
-// Same-site subdomains share a registrable domain, so Lax is delivered on the
-// cross-origin XHR/fetch calls this app makes between a store subdomain and the API,
-// while still being withheld from requests originating on a genuinely different site.
+// The frontend and API can end up on domains that aren't same-site to each other (e.g.
+// separate Railway-issued preview domains, or yourdomain.com vs a different apex for the
+// API) — SameSite=Lax withholds cookies from those cross-site fetch() calls entirely. None
+// is safe here because the CORS allowlist in server.js already restricts which origins can
+// get a credentialed response back, so this doesn't open the cookie up to arbitrary sites.
 const COOKIE_OPTIONS = {
   httpOnly: true,
   secure: isProd,
-  sameSite: 'lax',
+  sameSite: isProd ? 'none' : 'lax',
   path: '/',
 };
 
