@@ -1,5 +1,7 @@
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
+import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -17,37 +19,60 @@ import currencyRouter from './routes/currency.js';
 import discountCodesRouter from './routes/discountCodes.js';
 import newsletterRouter from './routes/newsletter.js';
 import contactRouter from './routes/contact.js';
-import platformRouter from './routes/platform.js';
-import safepayRouter from './routes/safepay.js';
+import paymobRouter from './routes/paymob.js';
 import { resolveBusiness } from './middleware/tenant.js';
 import { getRobotsTxt, getSitemap } from './controllers/seoController.js';
-import { webhook as safepayWebhook } from './controllers/safepayController.js';
+import { webhook as paymobWebhook } from './controllers/paymobController.js';
 import { sendReviewReminders } from './utils/reviewReminder.js';
 import { syncLeopardsTracking } from './utils/leopardsSync.js';
+import { pruneOldSessions } from './utils/sessions.js';
 
 dotenv.config();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const FRONTEND_HOST = new URL(process.env.FRONTEND_URL || 'http://localhost:5173').hostname;
+
+// Every store is served from a subdomain of the same base host (see middleware/tenant.js),
+// so allowing that host and its subdomains covers the whole multi-tenant frontend without
+// resorting to a wildcard origin (which `cors` also rejects once `credentials: true` is set).
+function isAllowedOrigin(origin) {
+  if (!origin) return true;
+  try {
+    const { hostname } = new URL(origin);
+    return hostname === FRONTEND_HOST || hostname.endsWith(`.${FRONTEND_HOST}`);
+  } catch {
+    return false;
+  }
+}
 
 const app = express();
-app.use(cors());
-// Capture raw body for Safepay webhook HMAC verification
-app.use(express.json({
-  verify: (_req, _res, buf) => { _req.rawBody = buf.toString(); },
+app.use(helmet({
+  // Uploaded product images are loaded cross-origin (<img>) from store subdomains, and this
+  // server has no HTML views of its own for CSP to protect.
+  contentSecurityPolicy: false,
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
 }));
+app.use(cors({
+  origin: (origin, callback) => {
+    if (isAllowedOrigin(origin)) return callback(null, true);
+    const err = new Error('Not allowed by CORS');
+    err.status = 403;
+    callback(err);
+  },
+  credentials: true,
+}));
+app.use(cookieParser());
+app.use(express.json());
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
-
-// The platform panel manages businesses themselves, so it runs before any single business is resolved.
-app.use('/api/platform', platformRouter);
 
 // Crawlers fetch these at the storefront's own root, not under /api — resolved per-tenant by hostname.
 app.get('/robots.txt', resolveBusiness, getRobotsTxt);
 app.get('/sitemap.xml', resolveBusiness, getSitemap);
 
-// Safepay webhook must be registered BEFORE resolveBusiness — Safepay won't include store context
-app.post('/api/payments/safepay/webhook', safepayWebhook);
+// Paymob webhook must be registered BEFORE resolveBusiness — Paymob won't include store context
+app.post('/api/payments/paymob/webhook', paymobWebhook);
 
 app.use('/api', resolveBusiness);
 
@@ -64,7 +89,7 @@ app.use('/api/currency', currencyRouter);
 app.use('/api/discount-codes', discountCodesRouter);
 app.use('/api/newsletter', newsletterRouter);
 app.use('/api/contact', contactRouter);
-app.use('/api/payments/safepay', safepayRouter);
+app.use('/api/payments/paymob', paymobRouter);
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Not found' });
@@ -72,7 +97,14 @@ app.use((req, res) => {
 
 app.use((err, req, res, next) => {
   console.error(err);
-  res.status(500).json({ error: err.message || 'Internal server error' });
+  // mysql2 sets sqlMessage/sqlState on raw DB-driver errors, which can echo back schema/query
+  // details — mask those in production. Every other thrown error in this codebase (validation,
+  // CORS, integration failures like "Leopards is not enabled") is a hand-written message that's
+  // always meant to reach the client, so it's left alone. Defaults to masking (not showing) when
+  // NODE_ENV is simply unset, rather than assuming a platform sets it correctly.
+  const isDbError = Boolean(err.sqlMessage || err.sqlState);
+  const showDetail = !isDbError || process.env.NODE_ENV === 'development';
+  res.status(err.status || 500).json({ error: showDetail ? (err.message || 'Internal server error') : 'Internal server error' });
 });
 
 const PORT = process.env.PORT || 5000;
@@ -82,4 +114,6 @@ app.listen(PORT, () => {
   setInterval(sendReviewReminders, 60 * 60 * 1000);
   setTimeout(syncLeopardsTracking, 20_000);
   setInterval(syncLeopardsTracking, 30 * 60 * 1000);
+  setTimeout(pruneOldSessions, 30_000);
+  setInterval(pruneOldSessions, 24 * 60 * 60 * 1000);
 });

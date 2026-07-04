@@ -2,9 +2,15 @@ import pool from '../config/db.js';
 
 const BASE_HOSTS = ['localhost', '127.0.0.1'];
 
+// In production, tenant identity is derived strictly from the real Host header a request
+// actually arrived on — a caller can't claim to be a different store than the domain they
+// connected to. X-Store-Slug is a development-only convenience for simulating multiple
+// tenants locally without setting up real subdomain DNS.
 function extractSlug(req) {
-  const headerSlug = req.headers['x-store-slug'];
-  if (headerSlug) return String(headerSlug).toLowerCase().trim();
+  if (process.env.NODE_ENV !== 'production') {
+    const headerSlug = req.headers['x-store-slug'];
+    if (headerSlug) return String(headerSlug).toLowerCase().trim();
+  }
 
   const hostname = (req.hostname || '').toLowerCase();
   if (BASE_HOSTS.includes(hostname)) return 'main';

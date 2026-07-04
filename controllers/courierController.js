@@ -1,5 +1,6 @@
 import pool from '../config/db.js';
 import { encryptSecret, decryptSecret } from '../utils/crypto.js';
+import { logAudit } from '../utils/auditLog.js';
 
 const DEFAULTS = {
   provider: 'Leopards Courier',
@@ -44,7 +45,7 @@ export async function adminUpdate(req, res) {
     return res.status(400).json({ error: 'Tracking URL template must include {tracking_number}' });
   }
 
-  // Masked-field behavior (matches Safepay): a blank submission keeps the existing secret.
+  // Masked-field behavior (matches Paymob): a blank submission keeps the existing secret.
   const existing = await getCourierSettings(req.business.id);
   const keyToSave = api_key || existing.api_key || null;
   const passwordToSave = api_password || existing.api_password || null;
@@ -63,6 +64,10 @@ export async function adminUpdate(req, res) {
   );
   cityCache.delete(req.business.id);
   res.json({ message: 'Saved' });
+  logAudit({
+    req, action: 'courier_settings.update', entityType: 'courier_settings', entityId: req.business.id,
+    details: { provider: provider || 'Leopards Courier', enabled: Boolean(enabled), sandbox: Boolean(sandbox), secrets_changed: Boolean(api_key || api_password) },
+  });
 }
 
 export async function getCourierSettings(businessId) {

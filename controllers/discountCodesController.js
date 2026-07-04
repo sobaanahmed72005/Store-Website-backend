@@ -1,4 +1,5 @@
 import pool from '../config/db.js';
+import { logAudit } from '../utils/auditLog.js';
 
 export async function resolveDiscount({ businessId, userId, code, subtotal, queryRunner = pool }) {
   const normalizedCode = String(code || '').trim().toUpperCase();
@@ -8,7 +9,10 @@ export async function resolveDiscount({ businessId, userId, code, subtotal, quer
     throw err;
   }
 
-  const [rows] = await queryRunner.query('SELECT * FROM discount_codes WHERE business_id = ? AND code = ?', [businessId, normalizedCode]);
+  // FOR UPDATE locks the code's row for the life of the caller's transaction, so two concurrent
+  // orders redeeming the same single-use code serialize here instead of both passing the
+  // "already used" check below before either has committed its redemption row.
+  const [rows] = await queryRunner.query('SELECT * FROM discount_codes WHERE business_id = ? AND code = ? FOR UPDATE', [businessId, normalizedCode]);
   if (rows.length === 0) {
     const err = new Error('Invalid discount code');
     err.status = 400;
@@ -77,13 +81,14 @@ export async function adminList(req, res) {
 
 export async function adminCreate(req, res) {
   const { code, discount_type, discount_value, expires_at, reusable, is_active } = req.body;
-  if (!code?.trim() || !['percent', 'fixed'].includes(discount_type) || discount_value == null) {
-    return res.status(400).json({ error: 'code, discount_type, and discount_value are required' });
+  const numericValue = Number(discount_value);
+  if (!code?.trim() || !['percent', 'fixed'].includes(discount_type) || discount_value == null || !Number.isFinite(numericValue)) {
+    return res.status(400).json({ error: 'code, discount_type, and a numeric discount_value are required' });
   }
-  if (discount_type === 'percent' && (discount_value <= 0 || discount_value > 100)) {
+  if (discount_type === 'percent' && (numericValue <= 0 || numericValue > 100)) {
     return res.status(400).json({ error: 'Percentage must be between 0 and 100' });
   }
-  if (Number(discount_value) <= 0) {
+  if (numericValue <= 0) {
     return res.status(400).json({ error: 'discount_value must be greater than 0' });
   }
 
@@ -94,13 +99,17 @@ export async function adminCreate(req, res) {
         req.business.id,
         code.trim().toUpperCase(),
         discount_type,
-        discount_value,
+        numericValue,
         is_active === undefined ? 1 : Number(Boolean(is_active)),
         expires_at || null,
         Number(Boolean(reusable)),
       ]
     );
     res.status(201).json({ id: result.insertId });
+    logAudit({
+      req, action: 'discount_code.create', entityType: 'discount_code', entityId: result.insertId,
+      details: { code: code.trim().toUpperCase(), discount_type, discount_value },
+    });
   } catch (err) {
     if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'A code with that name already exists' });
     throw err;
@@ -109,16 +118,25 @@ export async function adminCreate(req, res) {
 
 export async function adminUpdate(req, res) {
   const { is_active } = req.body;
-  const [result] = await pool.query(
+  const [existing] = await pool.query('SELECT code, is_active FROM discount_codes WHERE id = ? AND business_id = ?', [req.params.id, req.business.id]);
+  if (existing.length === 0) return res.status(404).json({ error: 'Discount code not found' });
+
+  await pool.query(
     'UPDATE discount_codes SET is_active = ? WHERE id = ? AND business_id = ?',
     [Number(Boolean(is_active)), req.params.id, req.business.id]
   );
-  if (result.affectedRows === 0) return res.status(404).json({ error: 'Discount code not found' });
   res.json({ message: 'Updated' });
+  logAudit({
+    req, action: 'discount_code.update', entityType: 'discount_code', entityId: req.params.id,
+    details: { code: existing[0].code, is_active: { from: Boolean(existing[0].is_active), to: Boolean(is_active) } },
+  });
 }
 
 export async function adminDelete(req, res) {
-  const [result] = await pool.query('DELETE FROM discount_codes WHERE id = ? AND business_id = ?', [req.params.id, req.business.id]);
-  if (result.affectedRows === 0) return res.status(404).json({ error: 'Discount code not found' });
+  const [existing] = await pool.query('SELECT code FROM discount_codes WHERE id = ? AND business_id = ?', [req.params.id, req.business.id]);
+  if (existing.length === 0) return res.status(404).json({ error: 'Discount code not found' });
+
+  await pool.query('DELETE FROM discount_codes WHERE id = ? AND business_id = ?', [req.params.id, req.business.id]);
   res.json({ message: 'Deleted' });
+  logAudit({ req, action: 'discount_code.delete', entityType: 'discount_code', entityId: req.params.id, details: { code: existing[0].code } });
 }

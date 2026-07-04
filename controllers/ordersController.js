@@ -1,10 +1,11 @@
 import pool from '../config/db.js';
 import { sendMail } from '../utils/mailer.js';
-import { wrapEmail, emailGreeting, emailButton, emailParagraph, emailOrderTable, emailStatusBadge, emailDivider, emailInvoiceBlock } from '../utils/emailTemplate.js';
+import { wrapEmail, emailGreeting, emailButton, emailParagraph, emailOrderTable, emailStatusBadge, emailDivider, emailInvoiceBlock, escapeHtml } from '../utils/emailTemplate.js';
 import { resolveDiscount } from './discountCodesController.js';
 import { getCourierSettings, buildTrackingUrl, bookLeopardsPacket, isLeopardsProvider } from './courierController.js';
 import { generateInvoicePdf } from '../utils/invoiceGenerator.js';
 import { getEmailTemplate, applyPlaceholders } from '../utils/emailLoader.js';
+import { logAudit } from '../utils/auditLog.js';
 
 function effectivePrice(product) {
   return product.is_on_sale && product.discount_price != null ? Number(product.discount_price) : Number(product.price);
@@ -17,16 +18,16 @@ export async function createOrder(req, res) {
     return res.status(400).json({ error: 'shipping_address, phone and items are required' });
   }
 
-  let isSafepay = false;
-  if (payment_method === 'safepay') {
+  let isPaymob = false;
+  if (payment_method === 'paymob') {
     const [gwRows] = await pool.query(
-      "SELECT enabled, api_key, secret_key FROM payment_gateways WHERE business_id = ? AND provider = 'safepay'",
+      "SELECT enabled, api_key, secret_key, hmac_secret, integration_ids FROM payment_gateways WHERE business_id = ? AND provider = 'paymob'",
       [req.business.id]
     );
-    if (!gwRows.length || !gwRows[0].enabled || !gwRows[0].api_key || !gwRows[0].secret_key) {
-      return res.status(400).json({ error: 'Safepay is not enabled for this store' });
+    if (!gwRows.length || !gwRows[0].enabled || !gwRows[0].api_key || !gwRows[0].secret_key || !gwRows[0].hmac_secret || !gwRows[0].integration_ids) {
+      return res.status(400).json({ error: 'Paymob is not enabled for this store' });
     }
-    isSafepay = true;
+    isPaymob = true;
   } else {
     const [paymentRows] = await pool.query(
       'SELECT value FROM site_content WHERE business_id = ? AND content_key = ?',
@@ -89,6 +90,22 @@ export async function createOrder(req, res) {
   try {
     await connection.beginTransaction();
 
+    // Atomic "decrement if enough stock" — the UPDATE's WHERE clause is evaluated as part of
+    // the same locked read-modify-write, so this can't oversell even under concurrent orders
+    // for the same product (unlike the earlier plain SELECT check above, which only exists to
+    // fail fast with a friendly message before opening a transaction).
+    for (const [productIdKey, requestedQty] of requestedQtyByProduct) {
+      const [stockResult] = await connection.query(
+        'UPDATE products SET stock = stock - ? WHERE id = ? AND business_id = ? AND stock >= ?',
+        [requestedQty, productIdKey, req.business.id, requestedQty]
+      );
+      if (stockResult.affectedRows === 0) {
+        await connection.rollback();
+        const product = productById.get(productIdKey);
+        return res.status(400).json({ error: `Only a limited quantity of "${product?.name || 'this item'}" is available. Please update your cart.` });
+      }
+    }
+
     let discountAmount = 0;
     let resolvedDiscount = null;
     if (discount_code) {
@@ -109,7 +126,7 @@ export async function createOrder(req, res) {
     }
 
     const totalAmount = subtotal + shippingFee - discountAmount;
-    const orderStatus = isSafepay ? 'pending_payment' : 'pending';
+    const orderStatus = isPaymob ? 'pending_payment' : 'pending';
     const [orderResult] = await connection.query(
       `INSERT INTO orders (business_id, user_id, total_amount, shipping_fee, discount_code, discount_amount, shipping_name, shipping_address, shipping_city, phone, email, notes, payment_method, payment_reference, status)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -130,9 +147,10 @@ export async function createOrder(req, res) {
     }
 
     if (resolvedDiscount) {
+      const singleUseGuard = resolvedDiscount.reusable ? null : resolvedDiscount.id;
       await connection.query(
-        'INSERT INTO discount_code_redemptions (discount_code_id, user_id, order_id) VALUES (?, ?, ?)',
-        [resolvedDiscount.id, user_id, orderId]
+        'INSERT INTO discount_code_redemptions (discount_code_id, user_id, order_id, single_use_guard) VALUES (?, ?, ?, ?)',
+        [resolvedDiscount.id, user_id, orderId, singleUseGuard]
       );
     }
 
@@ -157,7 +175,7 @@ export async function createOrder(req, res) {
           { label: 'Order Number', value: `#${orderId}`, bold: true },
           { label: 'Items', value: orderItems.length },
           { label: 'Total', value: `Rs. ${Number(totalAmount).toLocaleString()}` },
-          { label: 'Payment', value: payment_method === 'cod' ? 'Cash on Delivery' : payment_method === 'safepay' ? 'Safepay (Online)' : 'Bank / Wallet Transfer' },
+          { label: 'Payment', value: payment_method === 'cod' ? 'Cash on Delivery' : payment_method === 'paymob' ? 'Paymob (Online)' : 'Bank / Wallet Transfer' },
           { label: 'Shipping to', value: `${shipping_city || ''}${shipping_city ? ', ' : ''}${shipping_address}` },
         ]) +
         emailParagraph("You'll receive another email as soon as your order is confirmed. If you have any questions, simply reply to this email.") +
@@ -264,7 +282,7 @@ function buildStatusEmail(status, id, order, tpl = null) {
       preheader: `Your order #${id} has shipped.`,
       badge: { text: 'Shipped', color: '#102b53' },
       message: order.tracking_number
-        ? `Your order has shipped via <strong>${order.courier_name || 'our courier partner'}</strong>. Use the tracking number below to follow your package.`
+        ? `Your order has shipped via <strong>${escapeHtml(order.courier_name) || 'our courier partner'}</strong>. Use the tracking number below to follow your package.`
         : `Your order has shipped and is on its way to you via our courier partner.`,
       extra: order.tracking_number
         ? emailOrderTable([
@@ -406,16 +424,25 @@ export async function updateOrderStatus(req, res) {
 
   const deliveredSet = status === 'delivered' ? ', delivered_at = NOW()' : '';
   const trackingSet = booked ? ', courier_name = ?, tracking_number = ?' : '';
-  await pool.query(
-    `UPDATE orders SET status = ?${deliveredSet}${trackingSet} WHERE id = ? AND business_id = ?`,
-    [status, ...(booked ? ['Leopards Courier', booked.trackNumber] : []), req.params.id, req.business.id],
+  // Guard on the status we read above so two admins acting on the same order at the same instant
+  // can't silently overwrite each other — the loser gets a clear conflict instead of a lost update.
+  const [updateResult] = await pool.query(
+    `UPDATE orders SET status = ?${deliveredSet}${trackingSet} WHERE id = ? AND business_id = ? AND status = ?`,
+    [status, ...(booked ? ['Leopards Courier', booked.trackNumber] : []), req.params.id, req.business.id, order.status],
   );
+  if (updateResult.affectedRows === 0) {
+    return res.status(409).json({ error: 'This order was updated by someone else. Please refresh and try again.' });
+  }
   res.json({
     message: 'Order status updated',
     ...(booked ? { courier_name: 'Leopards Courier', tracking_number: booked.trackNumber } : {}),
     ...(courierWarning ? { courier_warning: courierWarning } : {}),
   });
 
+  logAudit({
+    req, action: 'order.status_change', entityType: 'order', entityId: req.params.id,
+    details: { status: { from: order.status, to: status } },
+  });
   sendStatusChangeEmail(req.business.id, req.params.id, status).catch((err) => console.error('[order status email] failed:', err.message));
 }
 

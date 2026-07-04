@@ -5,19 +5,34 @@
   "type": "module",
   "main": "server.js",
   "scripts": {
-    "dev": "node --watch server.js",
-    "start": "node server.js",
-    "db:init": "node sql/init.js"
+    "dev": "cross-env NODE_ENV=development node --watch server.js",
+    "start": "cross-env NODE_ENV=production node server.js",
+    "db:init": "node sql/init.js",
+    "db:migrate-2fa": "node sql/migrate-2fa.js",
+    "db:migrate-updated-at": "node sql/migrate-updated-at.js",
+    "db:migrate-token-version": "node sql/migrate-token-version.js",
+    "db:migrate-discount-guard": "node sql/migrate-discount-guard.js",
+    "db:migrate-sessions": "node sql/migrate-sessions.js",
+    "db:migrate-paymob": "node sql/migrate-paymob.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
+    "express-rate-limit": "^8.5.2",
+    "helmet": "^8.2.0",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.2.0",
     "mysql2": "^3.22.5",
     "nodemailer": "^9.0.1",
-    "pdfkit": "^0.19.1"
+    "otplib": "^13.4.1",
+    "pdfkit": "^0.19.1",
+    "qrcode": "^1.5.4",
+    "sharp": "^0.35.3"
+  },
+  "devDependencies": {
+    "cross-env": "^10.1.0"
   }
 }

@@ -50,7 +50,7 @@ async function run() {
       [businessId, process.env.ADMIN_EMAIL],
     );
     if (adminRows.length === 0) {
-      const passwordHash = await bcrypt.hash(process.env.ADMIN_PASSWORD, 10);
+      const passwordHash = await bcrypt.hash(process.env.ADMIN_PASSWORD, 12);
       const [result] = await connection.query(
         `INSERT INTO users (business_id, name, email, password_hash, role, email_verified)
          VALUES (?, ?, ?, ?, 'admin', 1)`,
@@ -63,25 +63,6 @@ async function run() {
     }
   } else {
     console.log('ADMIN_EMAIL / ADMIN_PASSWORD not set — skipping store admin seed.');
-  }
-
-  if (process.env.PLATFORM_ADMIN_EMAIL && process.env.PLATFORM_ADMIN_PASSWORD) {
-    const [platformRows] = await connection.query(
-      'SELECT id FROM platform_admins WHERE email = ?',
-      [process.env.PLATFORM_ADMIN_EMAIL],
-    );
-    if (platformRows.length === 0) {
-      const passwordHash = await bcrypt.hash(process.env.PLATFORM_ADMIN_PASSWORD, 10);
-      await connection.query(
-        'INSERT INTO platform_admins (name, email, password_hash) VALUES (?, ?, ?)',
-        [process.env.PLATFORM_ADMIN_NAME || 'Platform Owner', process.env.PLATFORM_ADMIN_EMAIL, passwordHash],
-      );
-      console.log(`Created platform admin account: ${process.env.PLATFORM_ADMIN_EMAIL}`);
-    } else {
-      console.log(`Platform admin ${process.env.PLATFORM_ADMIN_EMAIL} already exists, skipping.`);
-    }
-  } else {
-    console.log('PLATFORM_ADMIN_EMAIL / PLATFORM_ADMIN_PASSWORD not set — skipping platform admin seed.');
   }
 
   await connection.end();

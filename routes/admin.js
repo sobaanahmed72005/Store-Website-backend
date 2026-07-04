@@ -2,6 +2,7 @@ import express from 'express';
 import { requireAdmin } from '../middleware/auth.js';
 import { upload } from '../middleware/upload.js';
 import { getStats, uploadImage } from '../controllers/adminController.js';
+import { listAuditLogs } from '../utils/auditLog.js';
 import {
   getRevenueTrend,
   getRevenueSummary,
@@ -55,7 +56,7 @@ import {
   adminSend as adminSendNewsletter,
 } from '../controllers/newsletterController.js';
 import { adminGet as adminGetCourier, adminUpdate as adminUpdateCourier, adminTestConnection as adminTestCourierConnection } from '../controllers/courierController.js';
-import { adminGet as adminGetSafepay, adminUpdate as adminUpdateSafepay } from '../controllers/safepayController.js';
+import { adminGet as adminGetPaymob, adminUpdate as adminUpdatePaymob } from '../controllers/paymobController.js';
 import {
   adminList as adminListPromoEmails,
   adminCreate as adminCreatePromoEmail,
@@ -70,6 +71,7 @@ router.use(requireAdmin);
 
 router.get('/stats', getStats);
 router.post('/upload', upload.single('image'), uploadImage);
+router.get('/audit-log', listAuditLogs);
 
 router.get('/reports/revenue-trend', getRevenueTrend);
 router.get('/reports/revenue-summary', getRevenueSummary);
@@ -132,8 +134,8 @@ router.get('/courier-settings', adminGetCourier);
 router.put('/courier-settings', adminUpdateCourier);
 router.post('/courier-settings/test', adminTestCourierConnection);
 
-router.get('/payment-gateways/safepay', adminGetSafepay);
-router.put('/payment-gateways/safepay', adminUpdateSafepay);
+router.get('/payment-gateways/paymob', adminGetPaymob);
+router.put('/payment-gateways/paymob', adminUpdatePaymob);
 
 router.get('/promo-emails', adminListPromoEmails);
 router.post('/promo-emails', adminCreatePromoEmail);

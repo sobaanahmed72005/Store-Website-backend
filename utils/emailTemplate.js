@@ -99,8 +99,8 @@ export function emailButton(text, url) {
 export function emailOrderTable(rows) {
   const rowsHtml = rows.map(({ label, value, bold }) => `
     <tr>
-      <td style="padding:10px 0;font-size:14px;color:${MUTED};border-bottom:1px solid #f0f0f0;">${label}</td>
-      <td style="padding:10px 0;font-size:14px;color:${TEXT};text-align:right;border-bottom:1px solid #f0f0f0;${bold ? 'font-weight:700;' : ''}">${value}</td>
+      <td style="padding:10px 0;font-size:14px;color:${MUTED};border-bottom:1px solid #f0f0f0;">${escapeHtml(label)}</td>
+      <td style="padding:10px 0;font-size:14px;color:${TEXT};text-align:right;border-bottom:1px solid #f0f0f0;${bold ? 'font-weight:700;' : ''}">${escapeHtml(value)}</td>
     </tr>`).join('');
 
   return `
@@ -138,7 +138,7 @@ const PAYMENT_LABEL_MAP = {
   jazzcash:      'JazzCash',
   easypaisa:     'EasyPaisa',
   cod:           'Cash on Delivery',
-  safepay:       'Safepay (Online)',
+  paymob:        'Paymob (Online)',
 };
 
 export function emailInvoiceBlock(order, items) {

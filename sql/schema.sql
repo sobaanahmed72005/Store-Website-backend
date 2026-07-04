@@ -1,14 +1,6 @@
 CREATE DATABASE IF NOT EXISTS czone_clone CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE czone_clone;
 
-CREATE TABLE IF NOT EXISTS platform_admins (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  name VARCHAR(100) NOT NULL,
-  email VARCHAR(150) NOT NULL UNIQUE,
-  password_hash VARCHAR(255) NOT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
 CREATE TABLE IF NOT EXISTS businesses (
   id INT AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(150) NOT NULL,
@@ -30,6 +22,7 @@ CREATE TABLE IF NOT EXISTS categories (
   show_in_nav TINYINT(1) NOT NULL DEFAULT 1,
   show_in_icons TINYINT(1) NOT NULL DEFAULT 1,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY business_id_slug (business_id, slug),
   FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE,
   FOREIGN KEY (parent_id) REFERENCES categories(id) ON DELETE CASCADE
@@ -60,6 +53,7 @@ CREATE TABLE IF NOT EXISTS products (
   is_new_arrival TINYINT(1) NOT NULL DEFAULT 0,
   is_on_sale TINYINT(1) NOT NULL DEFAULT 0,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY business_id_slug (business_id, slug),
   FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE,
   FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
@@ -80,9 +74,27 @@ CREATE TABLE IF NOT EXISTS users (
   saved_city VARCHAR(100) NULL,
   reset_token VARCHAR(255) NULL,
   reset_token_expires DATETIME NULL,
+  totp_secret VARCHAR(255) NULL,
+  totp_enabled TINYINT(1) NOT NULL DEFAULT 0,
+  totp_recovery_codes TEXT NULL,
+  -- Superseded by the `sessions` table below (per-device revocation). Left in place,
+  -- unused, rather than dropped — harmless, and avoids a destructive migration.
+  token_version INT NOT NULL DEFAULT 0,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY business_id_email (business_id, email),
   FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE
+);
+
+-- One row per login. The JWT carries `session_id` (this table's id) instead of embedding
+-- revocable state directly in the token, so a single device can be logged out (row revoked)
+-- without touching any other device's session for the same account. A security-sensitive
+-- action (password change, 2FA disable) instead revokes every row for that user_id at once.
+CREATE TABLE IF NOT EXISTS sessions (
+  id VARCHAR(64) PRIMARY KEY,
+  user_id INT NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  revoked_at TIMESTAMP NULL,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS cart_items (
@@ -120,6 +132,8 @@ CREATE TABLE IF NOT EXISTS orders (
   tracking_number VARCHAR(100),
   payment_method VARCHAR(30),
   payment_reference VARCHAR(150),
+  -- Unused since the switch to Paymob (which is looked up by order id directly via
+  -- special_reference, not a stored token). Left in place rather than dropped.
   safepay_token VARCHAR(255),
   delivered_at DATETIME NULL,
   review_reminder_sent_at DATETIME NULL,
@@ -228,7 +242,13 @@ CREATE TABLE IF NOT EXISTS discount_code_redemptions (
   discount_code_id INT NOT NULL,
   user_id INT NOT NULL,
   order_id INT NULL,
+  -- Set to discount_code_id when the code was single-use at redemption time, else NULL.
+  -- MySQL unique indexes treat NULL as distinct from every other NULL, so reusable-code
+  -- redemptions (NULL) never collide while single-use ones are enforced at the DB level —
+  -- a backstop in case a future code path ever bypasses the app-level FOR UPDATE lock.
+  single_use_guard INT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY single_use_guard_user (single_use_guard, user_id),
   FOREIGN KEY (discount_code_id) REFERENCES discount_codes(id) ON DELETE CASCADE,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
   FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE SET NULL
@@ -252,6 +272,13 @@ CREATE TABLE IF NOT EXISTS payment_gateways (
   sandbox TINYINT(1) NOT NULL DEFAULT 1,
   api_key VARCHAR(255),
   secret_key VARCHAR(255),
+  -- Paymob-specific: api_key above stores the encrypted Public Key, secret_key stores the
+  -- encrypted Secret Key (Authorization: Token header). hmac_secret is a THIRD, separate key
+  -- Paymob issues specifically for verifying transaction webhook signatures — never the same
+  -- value as secret_key. integration_ids is a comma-separated list of Paymob Integration IDs
+  -- (from the merchant's Paymob dashboard, one per enabled payment channel e.g. card/wallet).
+  hmac_secret VARCHAR(255),
+  integration_ids VARCHAR(255),
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY (business_id, provider),
   FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE
@@ -286,4 +313,20 @@ CREATE TABLE IF NOT EXISTS promotional_emails (
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_business_id (business_id),
   FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  business_id INT NOT NULL,
+  user_id INT NULL,
+  user_name VARCHAR(100) NULL,
+  action VARCHAR(100) NOT NULL,
+  entity_type VARCHAR(50) NOT NULL,
+  entity_id VARCHAR(50) NULL,
+  details TEXT NULL,
+  ip_address VARCHAR(45) NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_business_created (business_id, created_at),
+  FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
 );

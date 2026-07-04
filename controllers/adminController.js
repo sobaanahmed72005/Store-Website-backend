@@ -1,4 +1,7 @@
+import fs from 'fs/promises';
+import path from 'path';
 import pool from '../config/db.js';
+import { sanitizeUploadedImage } from '../utils/imageProcessing.js';
 
 export async function getStats(req, res) {
   const businessId = req.business.id;
@@ -16,7 +19,23 @@ export async function getStats(req, res) {
   res.json({ totalProducts, totalCategories, totalOrders, totalUsers, totalRevenue, pendingOrders, lowStock });
 }
 
-export function uploadImage(req, res) {
+export async function uploadImage(req, res) {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-  res.status(201).json({ url: `/uploads/${req.file.filename}` });
+
+  let format;
+  try {
+    format = await sanitizeUploadedImage(req.file.path);
+  } catch {
+    await fs.unlink(req.file.path).catch(() => {});
+    return res.status(400).json({ error: 'That file is not a valid image' });
+  }
+
+  // Rename to an extension derived from the sanitized image's real, validated format —
+  // never the client-supplied original filename's extension, which is attacker-controlled
+  // and unrelated to what bytes actually ended up on disk after sanitization.
+  const { dir, name } = path.parse(req.file.path);
+  const safeFilename = `${name}.${format}`;
+  await fs.rename(req.file.path, path.join(dir, safeFilename));
+
+  res.status(201).json({ url: `/uploads/${safeFilename}` });
 }

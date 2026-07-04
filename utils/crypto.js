@@ -10,7 +10,7 @@ function getKey() {
   return key;
 }
 
-// Encrypts a secret (Safepay/courier API keys) for storage at rest. Format: iv:authTag:ciphertext (all hex).
+// Encrypts a secret (Paymob/courier API keys) for storage at rest. Format: iv:authTag:ciphertext (all hex).
 export function encryptSecret(plainText) {
   if (plainText == null || plainText === '') return null;
   const iv = crypto.randomBytes(12);

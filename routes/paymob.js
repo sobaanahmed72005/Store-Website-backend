@@ -1,6 +1,6 @@
 import express from 'express';
 import { requireAuth } from '../middleware/auth.js';
-import { getEnabled, createSession } from '../controllers/safepayController.js';
+import { getEnabled, createSession } from '../controllers/paymobController.js';
 
 const router = express.Router();
 

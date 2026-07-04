@@ -1,6 +1,7 @@
 import pool from '../config/db.js';
 import { sendMail } from '../utils/mailer.js';
 import { escapeHtml } from '../utils/emailTemplate.js';
+import { logAudit } from '../utils/auditLog.js';
 
 async function attachAttributeOptionIds(rows) {
   if (rows.length === 0) return rows;
@@ -14,10 +15,18 @@ async function attachAttributeOptionIds(rows) {
   );
   return rows.map((row) => {
     const rowLinks = links.filter((l) => l.product_id === row.id);
+    const seenAttributes = new Set();
+    const specifications = [];
+    for (const l of rowLinks) {
+      const key = l.attribute_name.trim().toLowerCase();
+      if (seenAttributes.has(key)) continue;
+      seenAttributes.add(key);
+      specifications.push({ attribute: l.attribute_name, value: l.value });
+    }
     return {
       ...row,
       attribute_option_ids: rowLinks.map((l) => l.option_id),
-      specifications: rowLinks.map((l) => ({ attribute: l.attribute_name, value: l.value })),
+      specifications,
     };
   });
 }
@@ -60,6 +69,16 @@ async function setProductAttributeOptions(connection, productId, optionIds) {
   if (!optionIds?.length) return;
   const values = optionIds.map((optionId) => [productId, optionId]);
   await connection.query('INSERT INTO product_attribute_values (product_id, option_id) VALUES ?', [values]);
+}
+
+function validatePriceAndStock(price, stock) {
+  if (!Number.isFinite(Number(price)) || Number(price) < 0) {
+    return 'price must be a non-negative number';
+  }
+  if (stock != null && (!Number.isFinite(Number(stock)) || Number(stock) < 0)) {
+    return 'stock must be a non-negative number';
+  }
+  return null;
 }
 
 function validateSalePrice(is_on_sale, discount_price, price) {
@@ -162,6 +181,9 @@ export async function createProduct(req, res) {
     return res.status(400).json({ error: 'name, slug and price are required' });
   }
 
+  const priceStockError = validatePriceAndStock(price, stock);
+  if (priceStockError) return res.status(400).json({ error: priceStockError });
+
   const saleError = validateSalePrice(is_on_sale, discount_price, price);
   if (saleError) return res.status(400).json({ error: saleError });
 
@@ -186,6 +208,7 @@ export async function createProduct(req, res) {
     await setProductImages(connection, result.insertId, images);
     await connection.commit();
     res.status(201).json({ id: result.insertId });
+    logAudit({ req, action: 'product.create', entityType: 'product', entityId: result.insertId, details: { name, price, stock: stock ?? 0 } });
   } catch (err) {
     await connection.rollback();
     if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'A product with this name/slug already exists' });
@@ -223,9 +246,13 @@ export async function updateProduct(req, res) {
     return res.status(400).json({ error: 'name, slug and price are required' });
   }
 
-  const [existingRows] = await pool.query('SELECT stock FROM products WHERE id = ? AND business_id = ?', [req.params.id, req.business.id]);
+  const [existingRows] = await pool.query('SELECT price, stock FROM products WHERE id = ? AND business_id = ?', [req.params.id, req.business.id]);
   if (existingRows.length === 0) return res.status(404).json({ error: 'Product not found' });
   const previousStock = existingRows[0].stock;
+  const previousPrice = existingRows[0].price;
+
+  const priceStockError = validatePriceAndStock(price, stock);
+  if (priceStockError) return res.status(400).json({ error: priceStockError });
 
   const saleError = validateSalePrice(is_on_sale, discount_price, price);
   if (saleError) return res.status(400).json({ error: saleError });
@@ -256,6 +283,10 @@ export async function updateProduct(req, res) {
     await setProductImages(connection, req.params.id, images);
     await connection.commit();
     res.json({ message: 'Product updated' });
+    logAudit({
+      req, action: 'product.update', entityType: 'product', entityId: req.params.id,
+      details: { name, price: { from: previousPrice, to: price }, stock: { from: previousStock, to: stock ?? 0 } },
+    });
   } catch (err) {
     await connection.rollback();
     if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'A product with this name/slug already exists' });
@@ -271,9 +302,12 @@ export async function updateProduct(req, res) {
 }
 
 export async function deleteProduct(req, res) {
-  const [result] = await pool.query('DELETE FROM products WHERE id = ? AND business_id = ?', [req.params.id, req.business.id]);
-  if (result.affectedRows === 0) return res.status(404).json({ error: 'Product not found' });
+  const [existing] = await pool.query('SELECT name FROM products WHERE id = ? AND business_id = ?', [req.params.id, req.business.id]);
+  if (existing.length === 0) return res.status(404).json({ error: 'Product not found' });
+
+  await pool.query('DELETE FROM products WHERE id = ? AND business_id = ?', [req.params.id, req.business.id]);
   res.json({ message: 'Product deleted' });
+  logAudit({ req, action: 'product.delete', entityType: 'product', entityId: req.params.id, details: { name: existing[0].name } });
 }
 
 export async function bulkSale(req, res) {
@@ -312,7 +346,7 @@ export async function bulkSale(req, res) {
 
   if (discountType === 'percent') {
     const pct = Number(value);
-    if (pct <= 0 || pct >= 100) return res.status(400).json({ error: 'Percentage must be between 0 and 100' });
+    if (!Number.isFinite(pct) || pct <= 0 || pct >= 100) return res.status(400).json({ error: 'Percentage must be between 0 and 100' });
     const [result] = await pool.query(
       `UPDATE products SET discount_price = ROUND(price * (1 - ? / 100), 2), is_on_sale = 1 WHERE ${where}`,
       [pct, ...params]
@@ -322,7 +356,7 @@ export async function bulkSale(req, res) {
 
   if (discountType === 'fixed') {
     const fixedPrice = Number(value);
-    if (fixedPrice <= 0) return res.status(400).json({ error: 'Sale price must be greater than 0' });
+    if (!Number.isFinite(fixedPrice) || fixedPrice <= 0) return res.status(400).json({ error: 'Sale price must be greater than 0' });
     const [result] = await pool.query(
       `UPDATE products SET discount_price = ?, is_on_sale = 1 WHERE ${where} AND price > ?`,
       [fixedPrice, ...params, fixedPrice]

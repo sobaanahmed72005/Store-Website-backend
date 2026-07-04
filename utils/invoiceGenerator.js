@@ -1,18 +1,24 @@
 import PDFDocument from 'pdfkit'
 import pool from '../config/db.js'
 
-const INK       = '#102b53'
-const GOLD      = '#d4af37'
-const GOLD_BG   = '#fbf3dc'
-const TEXT      = '#212121'
-const MUTED     = '#666666'
+// Matches the site's teal/gold theme (src/index.css --color-cz-*)
+const HEADER_BG = '#2b6580' // cz-header — same shade the live site header uses behind the logo
+const PRIMARY   = '#35708f' // cz-primary
+const INK       = '#1f3a44' // cz-ink
+const GOLD      = '#d4af37' // cz-accent
+const GOLD_BG   = '#f7ecd9' // cz-gold-light
+const SEA_GREEN = '#4fae8a' // cz-lavender (sea-green accent, used for discounts)
+const TEXT      = '#1f3a44'
+const MUTED     = '#5c7a86'
+const LINE      = '#d7e2e6'
+const TOTAL_BG  = '#eaf2ef'
 
 const PAYMENT_LABEL = {
   bank_transfer: 'Bank Transfer',
   jazzcash:      'JazzCash',
   easypaisa:     'EasyPaisa',
   cod:           'Cash on Delivery',
-  safepay:       'Safepay (Online)',
+  paymob:        'Paymob (Online)',
 }
 
 async function fetchImageBuffer(url) {
@@ -57,7 +63,10 @@ export async function generateInvoicePdf(orderId, businessId) {
     if (row.content_key === 'footer-brand')  { storeAddress = v.address || ''; storePhone = v.phone || ''; storeEmail = v.email || '' }
   }
 
-  const logoBuf = logoUrl ? await fetchImageBuffer(logoUrl) : null
+  const backendUrl  = process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 5000}`
+  const websiteUrl  = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/^https?:\/\//, '')
+  const logoAbsUrl  = logoUrl ? (logoUrl.startsWith('http') ? logoUrl : `${backendUrl}${logoUrl}`) : ''
+  const logoBuf     = logoAbsUrl ? await fetchImageBuffer(logoAbsUrl) : null
 
   // ── Build PDF ─────────────────────────────────────────────────────────────
   return new Promise((resolve, reject) => {
@@ -71,8 +80,8 @@ export async function generateInvoicePdf(orderId, businessId) {
     const M  = 50               // margin
     const UW = W - M * 2        // 495 usable width
 
-    // ── Header (dark blue background) ────────────────────────────────────
-    doc.rect(0, 0, W, 112).fill(INK)
+    // ── Header (site teal background) ────────────────────────────────────
+    doc.rect(0, 0, W, 112).fill(HEADER_BG)
 
     let logoEndX = M
     if (logoBuf) {
@@ -86,7 +95,11 @@ export async function generateInvoicePdf(orderId, businessId) {
        .text(siteName || 'Invoice', logoEndX, 22, { width: 230 })
 
     let sY = 48
-    doc.font('Helvetica').fontSize(8.5).fillColor('#a8bbd0')
+    doc.font('Helvetica-Bold').fontSize(8.5).fillColor(GOLD)
+       .text(websiteUrl, logoEndX, sY, { width: 230 })
+    sY += 12
+
+    doc.font('Helvetica').fontSize(8.5).fillColor('#bcd8de')
     if (storeAddress) {
       doc.text(storeAddress, logoEndX, sY, { width: 230 })
       sY += doc.heightOfString(storeAddress, { width: 230 }) + 2
@@ -141,7 +154,7 @@ export async function generateInvoicePdf(orderId, businessId) {
     }
 
     y = Math.max(y, ry) + 16
-    doc.rect(M, y, UW, 0.5).fill('#d4d4d4')
+    doc.rect(M, y, UW, 0.5).fill(LINE)
     y += 14
 
     // ── Items Table ───────────────────────────────────────────────────────
@@ -152,7 +165,7 @@ export async function generateInvoicePdf(orderId, businessId) {
     const TOTAL_RE = M + UW         // total right edge       (545)
 
     // Header
-    doc.rect(M, y, UW, ROW_H).fill(INK)
+    doc.rect(M, y, UW, ROW_H).fill(PRIMARY)
     doc.font('Helvetica-Bold').fontSize(8.5).fillColor('#ffffff')
     doc.text('ITEM',       M + 6, y + 7, { width: QTY_RE - M - 70 })
     doc.text('QTY',        M + 6, y + 7, { width: QTY_RE - M - 6,   align: 'right' })
@@ -172,7 +185,7 @@ export async function generateInvoicePdf(orderId, businessId) {
       y += ROW_H
     }
 
-    doc.rect(M, y, UW, 0.5).fill('#d4d4d4')
+    doc.rect(M, y, UW, 0.5).fill(LINE)
     y += 14
 
     // ── Totals ────────────────────────────────────────────────────────────
@@ -187,7 +200,7 @@ export async function generateInvoicePdf(orderId, businessId) {
 
     const totRow = (label, val, bold = false, valColor = TEXT) => {
       if (bold) {
-        doc.rect(tX - 8, y - 4, tLW + tVW + 8, 26).fill('#eef2f8')
+        doc.rect(tX - 8, y - 4, tLW + tVW + 8, 26).fill(TOTAL_BG)
       }
       doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(bold ? 10.5 : 10)
          .fillColor(bold ? INK : MUTED).text(label, tX, y, { width: tLW })
@@ -202,7 +215,7 @@ export async function generateInvoicePdf(orderId, businessId) {
       totRow(
         order.discount_code ? `Discount (${order.discount_code})` : 'Discount',
         `-Rs. ${discount.toLocaleString()}`,
-        false, '#2e7d32',
+        false, SEA_GREEN,
       )
     }
     totRow('GRAND TOTAL', `Rs. ${total.toLocaleString()}`, true)
