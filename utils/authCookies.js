@@ -1,4 +1,6 @@
-const isProd = process.env.NODE_ENV === 'production';
+import { IS_PRODUCTION } from '../config/env.js';
+
+const isProd = IS_PRODUCTION;
 
 export const AUTH_COOKIE = 'cz_token';
 

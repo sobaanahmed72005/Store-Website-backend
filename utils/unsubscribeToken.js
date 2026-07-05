@@ -1,9 +1,10 @@
 import { createHmac, timingSafeEqual } from 'crypto';
+import { JWT_SECRET } from '../config/env.js';
 
-if (!process.env.JWT_SECRET) {
+if (!JWT_SECRET) {
   throw new Error('JWT_SECRET must be set — refusing to sign unsubscribe tokens with a default secret.');
 }
-const SECRET = process.env.JWT_SECRET;
+const SECRET = JWT_SECRET;
 
 // A stateless, unguessable per-(business, email) token — no separate DB column
 // needed, and it's recomputed the same way every time so old email links never expire.

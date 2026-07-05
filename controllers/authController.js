@@ -10,6 +10,7 @@ import { encryptSecret, decryptSecret } from '../utils/crypto.js';
 import { generateTotpSecret, verifyTotpToken, buildOtpAuthQrCode, generateRecoveryCodes } from '../utils/totp.js';
 import { createChallengeStore } from '../utils/challengeStore.js';
 import { createSession, revokeSession, revokeAllSessions } from '../utils/sessions.js';
+import { JWT_SECRET, FRONTEND_URL } from '../config/env.js';
 
 const BCRYPT_ROUNDS = 12;
 const loginChallenges = createChallengeStore();
@@ -26,7 +27,7 @@ function publicUser(user) {
 function issueSession(res, user, businessId, sessionId) {
   const token = jwt.sign(
     { id: user.id, email: user.email, role: user.role, business_id: businessId, session_id: sessionId },
-    process.env.JWT_SECRET,
+    JWT_SECRET,
     { expiresIn: '7d' }
   );
   setAuthCookie(res, AUTH_COOKIE, token);
@@ -52,7 +53,7 @@ async function verifyTwoFactorCode(user, rawToken) {
 }
 
 async function buildVerificationEmail(name, token, businessId) {
-  const link = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/verify-email?token=${token}`;
+  const link = `${FRONTEND_URL}/verify-email?token=${token}`;
   const tpl = await getEmailTemplate(businessId, 'signup').catch(() => null);
   const vars = { name };
   const subject = tpl?.subject ? applyPlaceholders(tpl.subject, vars) : 'Verify your email address';
@@ -71,7 +72,7 @@ async function buildVerificationEmail(name, token, businessId) {
 }
 
 async function buildPasswordResetEmail(name, token, businessId) {
-  const link = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password?token=${token}`;
+  const link = `${FRONTEND_URL}/reset-password?token=${token}`;
   const tpl = await getEmailTemplate(businessId, 'password_reset').catch(() => null);
   const vars = { name };
   const subject = tpl?.subject ? applyPlaceholders(tpl.subject, vars) : 'Reset your password';
@@ -175,7 +176,7 @@ export async function logout(req, res) {
   const token = req.cookies?.[AUTH_COOKIE];
   if (token) {
     try {
-      const payload = jwt.verify(token, process.env.JWT_SECRET);
+      const payload = jwt.verify(token, JWT_SECRET);
       if (payload.session_id) await revokeSession(payload.session_id);
     } catch {
       // Invalid/expired token — nothing to revoke, just clear the cookie below.

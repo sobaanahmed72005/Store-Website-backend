@@ -1,13 +1,14 @@
 import jwt from 'jsonwebtoken';
 import pool from '../config/db.js';
 import { AUTH_COOKIE } from '../utils/authCookies.js';
+import { JWT_SECRET } from '../config/env.js';
 
 export async function requireAuth(req, res, next) {
   const token = req.cookies?.[AUTH_COOKIE];
   if (!token) return res.status(401).json({ error: 'Authentication required' });
 
   try {
-    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    const payload = jwt.verify(token, JWT_SECRET);
     // Joining against sessions confirms this specific device's session is still valid —
     // not revoked by a logout on this device, or by an account-wide revocation from a
     // password change / 2FA disable on any device. A missing row covers both cases.

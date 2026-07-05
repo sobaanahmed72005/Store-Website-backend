@@ -1,4 +1,5 @@
 import pool from '../config/db.js';
+import { DEFAULT_STORE_SLUG, NODE_ENV } from '../config/env.js';
 
 const BASE_HOSTS = ['localhost', '127.0.0.1'];
 
@@ -10,9 +11,9 @@ function extractSlug(req) {
   // Single-store deployments set this so tenant resolution doesn't depend on guessing the
   // slug from whatever domain the request happened to arrive on (which breaks the moment the
   // frontend and backend live on different domains, e.g. yourdomain.com vs api.yourdomain.com).
-  if (process.env.DEFAULT_STORE_SLUG) return process.env.DEFAULT_STORE_SLUG;
+  if (DEFAULT_STORE_SLUG) return DEFAULT_STORE_SLUG;
 
-  if (process.env.NODE_ENV !== 'production') {
+  if (NODE_ENV !== 'production') {
     const headerSlug = req.headers['x-store-slug'];
     if (headerSlug) return String(headerSlug).toLowerCase().trim();
   }

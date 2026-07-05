@@ -3,6 +3,7 @@ import { sendMail } from '../utils/mailer.js';
 import { wrapEmail, emailParagraph, emailDivider } from '../utils/emailTemplate.js';
 import { generateUnsubscribeToken } from '../utils/unsubscribeToken.js';
 import { buildStoreUrl } from '../utils/storeUrl.js';
+import { BACKEND_URL } from '../config/env.js';
 
 function buildUnsubscribeUrl(business, email) {
   const token = generateUnsubscribeToken(business.id, email);
@@ -10,7 +11,7 @@ function buildUnsubscribeUrl(business, email) {
 }
 
 function buildPromoHtml({ subject, message, poster_image }, unsubscribeUrl) {
-  const backendUrl = process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 5000}`;
+  const backendUrl = BACKEND_URL;
   const imageUrl = poster_image
     ? (poster_image.startsWith('http') ? poster_image : `${backendUrl}${poster_image}`)
     : null;
