@@ -26,16 +26,21 @@ import { pruneOldSessions } from './utils/sessions.js';
 import { PORT, FRONTEND_URL, NODE_ENV } from './config/env.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const FRONTEND_HOST = new URL(FRONTEND_URL).hostname;
+const FRONTEND_ORIGIN = new URL(FRONTEND_URL);
 
-// Every store is served from a subdomain of the same base host (see middleware/tenant.js),
-// so allowing that host and its subdomains covers the whole multi-tenant frontend without
-// resorting to a wildcard origin (which `cors` also rejects once `credentials: true` is set).
+// Every store is served from a subdomain of the same base host (see middleware/tenant.js), so
+// allowing that host and its subdomains covers the whole multi-tenant frontend without resorting
+// to a wildcard origin (which `cors` also rejects once `credentials: true` is set). Scheme and
+// port must match too, not just hostname — cookies are domain-scoped but not port-scoped, so
+// matching on hostname alone would let anything else bound to the same host (e.g. any other
+// process listening on localhost during local dev, on any port) pass this check and receive
+// credentialed cross-origin responses.
 function isAllowedOrigin(origin) {
   if (!origin) return true;
   try {
-    const { hostname } = new URL(origin);
-    return hostname === FRONTEND_HOST || hostname.endsWith(`.${FRONTEND_HOST}`);
+    const url = new URL(origin);
+    if (url.protocol !== FRONTEND_ORIGIN.protocol || url.port !== FRONTEND_ORIGIN.port) return false;
+    return url.hostname === FRONTEND_ORIGIN.hostname || url.hostname.endsWith(`.${FRONTEND_ORIGIN.hostname}`);
   } catch {
     return false;
   }

@@ -1,18 +1,20 @@
 import express from 'express';
 import {
-  register, login, logout, me, verifyEmail, resendVerification, updateProfile, changePassword,
+  register, login, logout, me, refresh, verifyEmail, resendVerification, updateProfile, changePassword,
   forgotPassword, resetPassword, verifyTwoFactorLogin, twoFactorStatus, setupTwoFactor, confirmTwoFactor, disableTwoFactor,
 } from '../controllers/authController.js';
 import { requireAuth } from '../middleware/auth.js';
 import { loginRateLimit } from '../middleware/loginRateLimit.js';
 import { accountActionRateLimit } from '../middleware/accountActionRateLimit.js';
 import { twoFactorRateLimit } from '../middleware/twoFactorRateLimit.js';
+import { refreshRateLimit } from '../middleware/refreshRateLimit.js';
 
 const router = express.Router();
 
 router.post('/register', accountActionRateLimit, register);
 router.post('/login', loginRateLimit, login);
 router.post('/2fa/verify', twoFactorRateLimit, verifyTwoFactorLogin);
+router.post('/refresh', refreshRateLimit, refresh);
 router.post('/logout', logout);
 router.get('/me', requireAuth, me);
 router.put('/me', requireAuth, updateProfile);

@@ -10,6 +10,13 @@ export const NODE_ENV = process.env.NODE_ENV || 'development';
 export const IS_PRODUCTION = NODE_ENV === 'production';
 
 export const PORT = process.env.PORT || 5000;
+
+// The CORS allowlist in server.js trusts requests whose origin matches this exactly (scheme +
+// host + port). Falling back to the local dev default in production would silently reject every
+// real request instead of failing loudly, so it's required there.
+if (IS_PRODUCTION && !process.env.FRONTEND_URL) {
+  throw new Error('FRONTEND_URL must be set when NODE_ENV=production.');
+}
 export const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 export const BACKEND_URL = process.env.BACKEND_URL || `http://localhost:${PORT}`;
 

@@ -19,7 +19,11 @@ function extractSlug(req) {
   }
 
   const hostname = (req.hostname || '').toLowerCase();
-  if (BASE_HOSTS.includes(hostname)) return 'main';
+  // Only a local-dev convenience (so http://127.0.0.1:5000 resolves instead of misparsing the
+  // IP's dots as a subdomain) — gated to non-production for the same reason X-Store-Slug is
+  // above: the Host header is caller-controlled, so honoring it in production would let anyone
+  // who can reach the origin directly force resolution to the 'main' tenant.
+  if (NODE_ENV !== 'production' && BASE_HOSTS.includes(hostname)) return 'main';
 
   const parts = hostname.split('.');
   if (parts.length > 1) return parts[0];
