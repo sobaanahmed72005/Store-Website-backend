@@ -9,7 +9,6 @@ import { REFRESH_COOKIE, setAuthCookies, clearAuthCookies } from '../utils/authC
 import { encryptSecret, decryptSecret } from '../utils/crypto.js';
 import { generateTotpSecret, verifyTotpToken, buildOtpAuthQrCode, generateRecoveryCodes } from '../utils/totp.js';
 import { createChallengeStore } from '../utils/challengeStore.js';
-import { createSession, revokeSession, revokeAllSessions } from '../utils/sessions.js';
 import { JWT_SECRET, FRONTEND_URL } from '../config/env.js';
 
 const BCRYPT_ROUNDS = 12;
@@ -24,13 +23,15 @@ function publicUser(user) {
   };
 }
 
-function issueSession(res, user, businessId, sessionId) {
-  const token = jwt.sign(
-    { id: user.id, name: user.name, email: user.email, role: user.role, business_id: businessId, session_id: sessionId },
-    JWT_SECRET,
-    { expiresIn: '15m' }
-  );
-  setAuthCookies(res, token, sessionId);
+// Pure JWT auth: both tokens are signed and verified purely by signature, with no server-side
+// session store — nothing here can be revoked before it naturally expires. `type` distinguishes
+// the two so an access token can't be replayed at /auth/refresh and a refresh token can't be
+// used to authenticate a normal request.
+function issueTokens(res, user, businessId) {
+  const claims = { id: user.id, name: user.name, email: user.email, role: user.role, business_id: businessId };
+  const accessToken = jwt.sign({ ...claims, type: 'access' }, JWT_SECRET, { expiresIn: '15m' });
+  const refreshToken = jwt.sign({ ...claims, type: 'refresh' }, JWT_SECRET, { expiresIn: '1d' });
+  setAuthCookies(res, accessToken, refreshToken);
 }
 
 async function verifyTwoFactorCode(user, rawToken) {
@@ -107,8 +108,7 @@ export async function register(req, res) {
     [req.business.id, name, email, passwordHash, phone ?? null, verificationToken]
   );
   const user = { id: result.insertId, name, email, role: 'customer', email_verified: 0 };
-  const sessionId = await createSession(user.id);
-  issueSession(res, user, req.business.id, sessionId);
+  issueTokens(res, user, req.business.id);
   res.status(201).json({ user });
 
   buildVerificationEmail(name, verificationToken, req.business.id).then(({ subject, html }) => {
@@ -130,8 +130,7 @@ export async function login(req, res) {
     return res.json({ requires2fa: true, challengeId });
   }
 
-  const sessionId = await createSession(user.id);
-  issueSession(res, user, req.business.id, sessionId);
+  issueTokens(res, user, req.business.id);
   res.json({ user: publicUser(user) });
 }
 
@@ -159,8 +158,7 @@ export async function verifyTwoFactorLogin(req, res) {
   }
 
   loginChallenges.consume(challengeId);
-  const sessionId = await createSession(user.id);
-  issueSession(res, user, challenge.businessId, sessionId);
+  issueTokens(res, user, challenge.businessId);
   res.json({ user: publicUser(user) });
 }
 
@@ -177,40 +175,34 @@ export async function me(req, res) {
 }
 
 export async function refresh(req, res) {
-  // The refresh cookie is just the session id itself (see utils/sessions.js / authCookies.js)
-  // — this is the one DB round-trip per ~15-minute access-token lifetime that replaces what
-  // used to be a query on every single authenticated request.
-  const sessionId = req.cookies?.[REFRESH_COOKIE];
-  if (!sessionId) return res.status(401).json({ error: 'Not signed in' });
+  // Pure JWT — the refresh token is verified purely by signature, no DB lookup at all. Its own
+  // claims (id/name/email/role) are reused directly to mint a fresh access token, which is what
+  // makes this endpoint free of any database cost, at the price of not being able to check
+  // whether this specific token has been "revoked" (there's nothing to check it against).
+  const token = req.cookies?.[REFRESH_COOKIE];
+  if (!token) return res.status(401).json({ error: 'Not signed in' });
 
-  const [rows] = await pool.query(
-    `SELECT u.id, u.name, u.email, u.role, u.business_id
-     FROM sessions s
-     JOIN users u ON u.id = s.user_id
-     WHERE s.id = ? AND s.revoked_at IS NULL`,
-    [sessionId]
-  );
-  if (rows.length === 0) {
+  let payload;
+  try {
+    payload = jwt.verify(token, JWT_SECRET);
+  } catch {
     clearAuthCookies(res);
     return res.status(401).json({ error: 'Session expired, please sign in again' });
   }
 
-  const user = rows[0];
-  if (user.business_id !== req.business.id) {
+  if (payload.type !== 'refresh' || payload.business_id !== req.business.id) {
+    clearAuthCookies(res);
     return res.status(401).json({ error: 'Invalid session for this store' });
   }
 
-  issueSession(res, user, user.business_id, sessionId);
+  issueTokens(res, payload, payload.business_id);
   res.json({ message: 'Refreshed' });
 }
 
 export async function logout(req, res) {
-  // Revokes only this one session (device), not every session on the account — logging
-  // out on a phone shouldn't also sign the same user out of their laptop. Reads the session
-  // id straight from the refresh cookie rather than decoding the access token, since the
-  // access token is often already expired (15-minute lifetime) by the time someone logs out.
-  const sessionId = req.cookies?.[REFRESH_COOKIE];
-  if (sessionId) await revokeSession(sessionId).catch(() => {});
+  // Pure JWT auth has no server-side session to revoke — logout only clears the cookies on this
+  // device. A copy of either token elsewhere (another device, a leaked cookie) keeps working
+  // until it naturally expires (access: 15 minutes, refresh: 7 days).
   clearAuthCookies(res);
   res.json({ message: 'Logged out' });
 }
@@ -267,13 +259,10 @@ export async function disableTwoFactor(req, res) {
     'UPDATE users SET totp_enabled = 0, totp_secret = NULL, totp_recovery_codes = NULL WHERE id = ?',
     [req.user.id]
   );
-  // Unlike a plain logout, this revokes *every* session on the account — 2FA being turned
-  // off is exactly the kind of event where any other device holding a valid session token
-  // should be forced to re-authenticate. The device making this request gets a fresh
-  // session immediately after, so the person taking this action isn't logged out of it.
-  await revokeAllSessions(req.user.id);
-  const sessionId = await createSession(req.user.id);
-  issueSession(res, req.user, req.business.id, sessionId);
+  // With pure JWT auth there's no server-side session to revoke — any other device's existing
+  // tokens remain valid until they naturally expire. This only refreshes the tokens for the
+  // device making this request.
+  issueTokens(res, req.user, req.business.id);
   res.json({ message: 'Two-factor authentication disabled' });
 }
 
@@ -292,9 +281,8 @@ export async function updateProfile(req, res) {
 
   const [rows] = await pool.query('SELECT email_verified FROM users WHERE id = ?', [req.user.id]);
   const user = { id: req.user.id, name: name.trim(), email: email.trim(), role: req.user.role, email_verified: rows[0]?.email_verified };
-  // Just refreshing the cookie's payload (name/email may have changed) — reuse the same
-  // session rather than minting a new one, since nothing here needs to be revoked.
-  issueSession(res, user, req.business.id, req.sessionId);
+  // Just refreshing the cookies' payload (name/email may have changed).
+  issueTokens(res, user, req.business.id);
   res.json({ user });
 }
 
@@ -313,12 +301,11 @@ export async function changePassword(req, res) {
 
   const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
   await pool.query('UPDATE users SET password_hash = ? WHERE id = ?', [passwordHash, req.user.id]);
-  // Revokes every session for this account (including a stolen token on another device)
-  // the moment the password changes — then immediately issues a fresh session for the
-  // device making this request, so changing your own password doesn't log you out too.
-  await revokeAllSessions(req.user.id);
-  const sessionId = await createSession(req.user.id);
-  issueSession(res, req.user, req.business.id, sessionId);
+  // With pure JWT auth there's no server-side session to revoke — a token issued before this
+  // change (including a stolen one on another device) remains valid until it naturally expires
+  // (access: 15 minutes, refresh: 7 days). This only refreshes the tokens for the device making
+  // this request.
+  issueTokens(res, req.user, req.business.id);
   res.json({ message: 'Password updated' });
 }
 

@@ -85,18 +85,6 @@ CREATE TABLE IF NOT EXISTS users (
   FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE
 );
 
--- One row per login. The JWT carries `session_id` (this table's id) instead of embedding
--- revocable state directly in the token, so a single device can be logged out (row revoked)
--- without touching any other device's session for the same account. A security-sensitive
--- action (password change, 2FA disable) instead revokes every row for that user_id at once.
-CREATE TABLE IF NOT EXISTS sessions (
-  id VARCHAR(64) PRIMARY KEY,
-  user_id INT NOT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  revoked_at TIMESTAMP NULL,
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-);
-
 CREATE TABLE IF NOT EXISTS cart_items (
   id INT AUTO_INCREMENT PRIMARY KEY,
   business_id INT NOT NULL,

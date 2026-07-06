@@ -1,7 +1,7 @@
 import pool from '../config/db.js';
 import { sendMail } from '../utils/mailer.js';
 import { wrapEmail, emailParagraph, emailDivider, escapeHtml } from '../utils/emailTemplate.js';
-import { SMTP_USER } from '../config/env.js';
+import { SMTP_CONFIG } from '../config/env.js';
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -11,7 +11,7 @@ async function getStoreContactEmail(businessId) {
     [businessId, 'footer-brand'],
   );
   const value = rows.length ? (typeof rows[0].value === 'string' ? JSON.parse(rows[0].value) : rows[0].value) : null;
-  return value?.email || SMTP_USER || null;
+  return value?.email || SMTP_CONFIG.USER || null;
 }
 
 export async function sendMessage(req, res) {

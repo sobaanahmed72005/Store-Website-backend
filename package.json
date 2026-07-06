@@ -12,7 +12,7 @@
     "db:migrate-updated-at": "node sql/migrate-updated-at.js",
     "db:migrate-token-version": "node sql/migrate-token-version.js",
     "db:migrate-discount-guard": "node sql/migrate-discount-guard.js",
-    "db:migrate-sessions": "node sql/migrate-sessions.js",
+    "db:migrate-drop-sessions": "node sql/migrate-drop-sessions.js",
     "db:migrate-payment-proof": "node sql/migrate-payment-proof.js"
   },
   "dependencies": {

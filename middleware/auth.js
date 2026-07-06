@@ -8,11 +8,17 @@ export async function requireAuth(req, res, next) {
 
   try {
     const payload = jwt.verify(token, JWT_SECRET);
+    // The refresh token is also a signed JWT (see controllers/authController.js) — without this
+    // check, a leaked refresh token would work here too, defeating its longer-but-more-sensitive
+    // lifetime, and an access token would work at /auth/refresh, letting it mint new access
+    // tokens indefinitely instead of expiring for good after 15 minutes.
+    if (payload.type !== 'access') {
+      return res.status(401).json({ error: 'Invalid or expired token' });
+    }
     if (!req.business || payload.business_id !== req.business.id) {
       return res.status(401).json({ error: 'Invalid token for this store' });
     }
     req.user = payload;
-    req.sessionId = payload.session_id;
     next();
   } catch (err) {
     // A distinct code for expiry (vs. a tampered/malformed token) lets the frontend tell the

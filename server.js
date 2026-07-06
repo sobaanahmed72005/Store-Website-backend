@@ -22,7 +22,6 @@ import { resolveBusiness } from './middleware/tenant.js';
 import { getRobotsTxt, getSitemap } from './controllers/seoController.js';
 import { sendReviewReminders } from './utils/reviewReminder.js';
 import { syncLeopardsTracking } from './utils/leopardsSync.js';
-import { pruneOldSessions } from './utils/sessions.js';
 import { PORT, FRONTEND_URL, NODE_ENV } from './config/env.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -110,6 +109,4 @@ app.listen(PORT, () => {
   setInterval(sendReviewReminders, 60 * 60 * 1000);
   setTimeout(syncLeopardsTracking, 20_000);
   setInterval(syncLeopardsTracking, 30 * 60 * 1000);
-  setTimeout(pruneOldSessions, 30_000);
-  setInterval(pruneOldSessions, 24 * 60 * 60 * 1000);
 });

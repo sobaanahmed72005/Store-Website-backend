@@ -1,5 +1,5 @@
-import mysql from 'mysql2/promise';
-import { DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME } from '../config/env.js';
+import { DB_CONFIG } from '../config/env.js';
+import { getConnection } from './dbConnection.js';
 
 const COLUMNS = [
   { name: 'payment_proof_image', ddl: 'VARCHAR(255) NULL' },
@@ -8,7 +8,7 @@ const COLUMNS = [
 async function addMissingColumns(connection, table) {
   const [existing] = await connection.query(
     'SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?',
-    [DB_NAME, table]
+    [DB_CONFIG.NAME, table]
   );
   const existingNames = new Set(existing.map((row) => row.COLUMN_NAME));
 
@@ -23,13 +23,7 @@ async function addMissingColumns(connection, table) {
 }
 
 async function run() {
-  const connection = await mysql.createConnection({
-    host: DB_HOST,
-    port: DB_PORT,
-    user: DB_USER,
-    password: DB_PASSWORD,
-    database: DB_NAME,
-  });
+  const connection = await getConnection();
 
   await addMissingColumns(connection, 'orders');
 

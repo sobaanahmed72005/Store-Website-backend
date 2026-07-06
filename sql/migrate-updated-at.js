@@ -1,12 +1,12 @@
-import mysql from 'mysql2/promise';
-import { DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME } from '../config/env.js';
+import { DB_CONFIG } from '../config/env.js';
+import { getConnection } from './dbConnection.js';
 
 const COLUMN = { name: 'updated_at', ddl: 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP' };
 
 async function addMissingColumn(connection, table) {
   const [existing] = await connection.query(
     'SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ?',
-    [DB_NAME, table, COLUMN.name]
+    [DB_CONFIG.NAME, table, COLUMN.name]
   );
   if (existing.length > 0) {
     console.log(`${table}.${COLUMN.name} already exists, skipping.`);
@@ -17,13 +17,7 @@ async function addMissingColumn(connection, table) {
 }
 
 async function run() {
-  const connection = await mysql.createConnection({
-    host: DB_HOST,
-    port: DB_PORT,
-    user: DB_USER,
-    password: DB_PASSWORD,
-    database: DB_NAME,
-  });
+  const connection = await getConnection();
 
   await addMissingColumn(connection, 'products');
   await addMissingColumn(connection, 'categories');

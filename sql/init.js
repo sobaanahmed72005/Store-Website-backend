@@ -1,21 +1,15 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import mysql from 'mysql2/promise';
 import bcrypt from 'bcryptjs';
-import { DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME, ADMIN_NAME, ADMIN_EMAIL, ADMIN_PASSWORD } from '../config/env.js';
+import { DB_CONFIG, ADMIN_NAME, ADMIN_EMAIL, ADMIN_PASSWORD } from '../config/env.js';
+import { getConnection } from './dbConnection.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const dbName = DB_NAME;
+const dbName = DB_CONFIG.NAME;
 
 async function run() {
-  const connection = await mysql.createConnection({
-    host: DB_HOST,
-    port: DB_PORT,
-    user: DB_USER,
-    password: DB_PASSWORD,
-    multipleStatements: true,
-  });
+  const connection = await getConnection({ withDatabase: false, multipleStatements: true });
 
   await connection.query(`CREATE DATABASE IF NOT EXISTS \`${dbName}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
   await connection.query(`USE \`${dbName}\``);
