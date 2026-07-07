@@ -33,7 +33,7 @@ function getTransporter() {
 
 export async function sendMail({ to, subject, html, attachments, replyTo }) {
   try {
-    const from = process.env.SMTP_FROM || 'YourITstore <no-reply@youritstore.com>';
+    const from = process.env.SMTP_FROM || 'Store <no-reply@example.com>';
     const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
     await getTransporter().sendMail({ from, to, subject, html, text, attachments, replyTo });
   } catch (err) {

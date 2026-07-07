@@ -5,6 +5,7 @@ import pool from '../config/db.js';
 import { sendMail } from '../utils/mailer.js';
 import { wrapEmail, emailGreeting, emailButton, emailParagraph, emailDivider } from '../utils/emailTemplate.js';
 import { getEmailTemplate, applyPlaceholders } from '../utils/emailLoader.js';
+import { getSiteName } from './contentController.js';
 import { AUTH_COOKIE, setAuthCookie, clearAuthCookie } from '../utils/authCookies.js';
 import { encryptSecret, decryptSecret } from '../utils/crypto.js';
 import { generateTotpSecret, verifyTotpToken, buildOtpAuthQrCode, generateRecoveryCodes } from '../utils/totp.js';
@@ -53,7 +54,10 @@ async function verifyTwoFactorCode(user, rawToken) {
 
 async function buildVerificationEmail(name, token, businessId) {
   const link = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/verify-email?token=${token}`;
-  const tpl = await getEmailTemplate(businessId, 'signup').catch(() => null);
+  const [tpl, storeName] = await Promise.all([
+    getEmailTemplate(businessId, 'signup').catch(() => null),
+    getSiteName(businessId),
+  ]);
   const vars = { name };
   const subject = tpl?.subject ? applyPlaceholders(tpl.subject, vars) : 'Verify your email address';
   const message = tpl?.message ? applyPlaceholders(tpl.message, vars) : 'Thanks for creating an account with us! To get started, please verify your email address by clicking the button below.';
@@ -66,13 +70,16 @@ async function buildVerificationEmail(name, token, businessId) {
     emailParagraph("<span style='color:#888;font-size:13px;'>If you didn't create an account, you can safely ignore this email.</span>");
   return {
     subject,
-    html: wrapEmail(body, { preheader: 'One click to activate your account.' }),
+    html: wrapEmail(body, { storeName, preheader: 'One click to activate your account.' }),
   };
 }
 
 async function buildPasswordResetEmail(name, token, businessId) {
   const link = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password?token=${token}`;
-  const tpl = await getEmailTemplate(businessId, 'password_reset').catch(() => null);
+  const [tpl, storeName] = await Promise.all([
+    getEmailTemplate(businessId, 'password_reset').catch(() => null),
+    getSiteName(businessId),
+  ]);
   const vars = { name };
   const subject = tpl?.subject ? applyPlaceholders(tpl.subject, vars) : 'Reset your password';
   const message = tpl?.message
@@ -87,7 +94,7 @@ async function buildPasswordResetEmail(name, token, businessId) {
     emailParagraph("<span style='color:#888;font-size:13px;'>This link expires in 1 hour. If you didn't request this, you can safely ignore this email.</span>");
   return {
     subject,
-    html: wrapEmail(body, { preheader: 'Reset your password.' }),
+    html: wrapEmail(body, { storeName, preheader: 'Reset your password.' }),
   };
 }
 
@@ -115,14 +122,17 @@ export async function register(req, res) {
   }).catch(() => {});
 }
 
-export async function login(req, res) {
+// Shared by the customer and admin login endpoints, which must stay fully separate:
+// an admin account can't authenticate through the customer endpoint and vice versa,
+// so a role mismatch is treated identically to a wrong password.
+async function authenticateUser(req, res, requiredRole) {
   const { email, password } = req.body;
   const [rows] = await pool.query('SELECT * FROM users WHERE business_id = ? AND email = ?', [req.business.id, email]);
   if (rows.length === 0) return res.status(401).json({ error: 'Invalid credentials' });
 
   const user = rows[0];
   const valid = await bcrypt.compare(password, user.password_hash);
-  if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
+  if (!valid || user.role !== requiredRole) return res.status(401).json({ error: 'Invalid credentials' });
 
   if (user.totp_enabled) {
     const challengeId = loginChallenges.create({ userId: user.id, businessId: req.business.id });
@@ -132,6 +142,14 @@ export async function login(req, res) {
   const sessionId = await createSession(user.id);
   issueSession(res, user, req.business.id, sessionId);
   res.json({ user: publicUser(user) });
+}
+
+export async function login(req, res) {
+  return authenticateUser(req, res, 'customer');
+}
+
+export async function adminLogin(req, res) {
+  return authenticateUser(req, res, 'admin');
 }
 
 export async function verifyTwoFactorLogin(req, res) {

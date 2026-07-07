@@ -1,6 +1,7 @@
 import pool from '../config/db.js';
 import { sendMail } from '../utils/mailer.js';
 import { wrapEmail, emailParagraph, emailDivider, escapeHtml } from '../utils/emailTemplate.js';
+import { getSiteName } from './contentController.js';
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -22,7 +23,10 @@ export async function sendMessage(req, res) {
     return res.status(400).json({ error: 'Please enter a valid email address' });
   }
 
-  const storeEmail = await getStoreContactEmail(req.business.id);
+  const [storeEmail, storeName] = await Promise.all([
+    getStoreContactEmail(req.business.id),
+    getSiteName(req.business.id),
+  ]);
   if (!storeEmail) {
     return res.status(500).json({ error: 'This store has not configured a contact email yet' });
   }
@@ -36,7 +40,7 @@ export async function sendMessage(req, res) {
   await sendMail({
     to: storeEmail,
     subject: subject?.trim() ? `Contact form: ${subject.trim()}` : `New message from ${name.trim()}`,
-    html: wrapEmail(body, { preheader: 'New message from your website contact form' }),
+    html: wrapEmail(body, { storeName, preheader: 'New message from your website contact form' }),
     replyTo: email.trim(),
   });
 

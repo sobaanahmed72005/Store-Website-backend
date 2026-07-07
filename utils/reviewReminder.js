@@ -2,6 +2,7 @@ import pool from '../config/db.js';
 import { sendMail } from './mailer.js';
 import { wrapEmail, emailGreeting, emailParagraph, emailDivider, escapeHtml } from './emailTemplate.js';
 import { getEmailTemplate, applyPlaceholders } from './emailLoader.js';
+import { getSiteName } from '../controllers/contentController.js';
 
 const GOLD_LIGHT = '#fbf3dc';
 const PRIMARY    = '#102b53';
@@ -54,7 +55,10 @@ export async function sendReviewReminders() {
             </tr>`;
         }).join('');
 
-        const reminderTpl = await getEmailTemplate(order.business_id, 'review_reminder').catch(() => null);
+        const [reminderTpl, storeName] = await Promise.all([
+          getEmailTemplate(order.business_id, 'review_reminder').catch(() => null),
+          getSiteName(order.business_id),
+        ]);
         const tplVars = { name, order_id: order.id };
         const reminderSubject = reminderTpl?.subject
           ? applyPlaceholders(reminderTpl.subject, tplVars)
@@ -84,6 +88,7 @@ export async function sendReviewReminders() {
           to:      order.email,
           subject: reminderSubject,
           html:    wrapEmail(body, {
+            storeName,
             preheader: `Your order was delivered 2 weeks ago — we'd love to hear what you think!`,
           }),
         });

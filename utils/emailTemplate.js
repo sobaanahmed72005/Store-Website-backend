@@ -18,7 +18,7 @@ export function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
-export function wrapEmail(bodyHtml, { storeName = 'YourITstore', preheader = '', unsubscribeUrl = '' } = {}) {
+export function wrapEmail(bodyHtml, { storeName = 'Our Store', preheader = '', unsubscribeUrl = '' } = {}) {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>

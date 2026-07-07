@@ -5,6 +5,7 @@ import { resolveDiscount } from './discountCodesController.js';
 import { getCourierSettings, buildTrackingUrl, bookLeopardsPacket, isLeopardsProvider } from './courierController.js';
 import { generateInvoicePdf } from '../utils/invoiceGenerator.js';
 import { getEmailTemplate, applyPlaceholders } from '../utils/emailLoader.js';
+import { getSiteName } from './contentController.js';
 import { logAudit } from '../utils/auditLog.js';
 import { handleImageUpload } from '../utils/uploadHandler.js';
 
@@ -161,7 +162,10 @@ export async function createOrder(req, res) {
     ).catch(() => {});
 
     if (email) {
-      const orderTpl = await getEmailTemplate(req.business.id, 'order_received').catch(() => null);
+      const [orderTpl, storeName] = await Promise.all([
+        getEmailTemplate(req.business.id, 'order_received').catch(() => null),
+        getSiteName(req.business.id),
+      ]);
       const orderVars = { name: shipping_name || 'there', order_id: orderId };
       const orderSubject = orderTpl?.subject ? applyPlaceholders(orderTpl.subject, orderVars) : `Order #${orderId} received — thank you!`;
       const orderMessage = orderTpl?.message ? applyPlaceholders(orderTpl.message, orderVars) : `Thanks for your order! We've received it and our team is reviewing it now.`;
@@ -181,7 +185,7 @@ export async function createOrder(req, res) {
       sendMail({
         to: email,
         subject: orderSubject,
-        html: wrapEmail(body, { preheader: `Your order #${orderId} has been received.` }),
+        html: wrapEmail(body, { storeName, preheader: `Your order #${orderId} has been received.` }),
       });
     }
   } catch (err) {
@@ -266,7 +270,7 @@ export const STATUS_TRANSITIONS = {
   pending_payment:   [],
 };
 
-function buildStatusEmail(status, id, order, tpl = null) {
+function buildStatusEmail(status, id, order, tpl = null, storeName) {
   const name = order.shipping_name || order.customer_name || 'there';
   const storeUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
   const vars = { name, order_id: id, tracking_number: order.tracking_number || '', courier: order.courier_name || '' };
@@ -345,7 +349,7 @@ function buildStatusEmail(status, id, order, tpl = null) {
     emailDivider() +
     emailParagraph("<span style='color:#888;font-size:13px;'>Thank you for shopping with us.</span>");
 
-  return { subject, html: wrapEmail(body, { preheader: cfg.preheader }) };
+  return { subject, html: wrapEmail(body, { storeName, preheader: cfg.preheader }) };
 }
 
 const STATUS_EMAIL = {
@@ -378,7 +382,10 @@ async function sendStatusChangeEmail(businessId, orderId, status) {
     out_for_delivery: 'order_out_for_delivery', delivered: 'order_delivered',
     cancelled: 'order_cancelled', returned: 'order_returned',
   };
-  const emailTpl = await getEmailTemplate(businessId, STATUS_TO_TEMPLATE_KEY[status] || '').catch(() => null);
+  const [emailTpl, storeName] = await Promise.all([
+    getEmailTemplate(businessId, STATUS_TO_TEMPLATE_KEY[status] || '').catch(() => null),
+    getSiteName(businessId),
+  ]);
   const tplVars = { name: order.shipping_name || order.customer_name || 'there', order_id: order.id };
 
   if (status === 'confirmed') {
@@ -396,12 +403,12 @@ async function sendStatusChangeEmail(businessId, orderId, status) {
     sendMail({
       to,
       subject,
-      html: wrapEmail(body, { preheader: `Great news — your order #${order.id} has been confirmed.` }),
+      html: wrapEmail(body, { storeName, preheader: `Great news — your order #${order.id} has been confirmed.` }),
     });
     return;
   }
 
-  const built = buildStatusEmail(status, order.id, order, emailTpl);
+  const built = buildStatusEmail(status, order.id, order, emailTpl, storeName);
   if (!built) return;
   sendMail({ to, subject: built.subject, html: built.html });
 }

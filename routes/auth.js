@@ -1,6 +1,6 @@
 import express from 'express';
 import {
-  register, login, logout, me, verifyEmail, resendVerification, updateProfile, changePassword,
+  register, login, adminLogin, logout, me, verifyEmail, resendVerification, updateProfile, changePassword,
   forgotPassword, resetPassword, verifyTwoFactorLogin, twoFactorStatus, setupTwoFactor, confirmTwoFactor, disableTwoFactor,
 } from '../controllers/authController.js';
 import { requireAuth } from '../middleware/auth.js';
@@ -12,6 +12,7 @@ const router = express.Router();
 
 router.post('/register', accountActionRateLimit, register);
 router.post('/login', loginRateLimit, login);
+router.post('/admin-login', loginRateLimit, adminLogin);
 router.post('/2fa/verify', twoFactorRateLimit, verifyTwoFactorLogin);
 router.post('/logout', logout);
 router.get('/me', requireAuth, me);
