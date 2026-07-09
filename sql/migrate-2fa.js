@@ -1,7 +1,5 @@
 import mysql from 'mysql2/promise';
-import dotenv from 'dotenv';
-
-dotenv.config();
+import { DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME } from '../config/env.js';
 
 const COLUMNS = [
   { name: 'totp_secret', ddl: 'VARCHAR(255) NULL' },
@@ -12,7 +10,7 @@ const COLUMNS = [
 async function addMissingColumns(connection, table) {
   const [existing] = await connection.query(
     'SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?',
-    [process.env.DB_NAME, table]
+    [DB_NAME, table]
   );
   const existingNames = new Set(existing.map((row) => row.COLUMN_NAME));
 
@@ -28,11 +26,11 @@ async function addMissingColumns(connection, table) {
 
 async function run() {
   const connection = await mysql.createConnection({
-    host: process.env.DB_HOST,
-    port: process.env.DB_PORT,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME,
+    host: DB_HOST,
+    port: DB_PORT,
+    user: DB_USER,
+    password: DB_PASSWORD,
+    database: DB_NAME,
   });
 
   await addMissingColumns(connection, 'users');

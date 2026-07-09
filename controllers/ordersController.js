@@ -7,6 +7,7 @@ import { generateInvoicePdf } from '../utils/invoiceGenerator.js';
 import { getEmailTemplate, applyPlaceholders } from '../utils/emailLoader.js';
 import { logAudit } from '../utils/auditLog.js';
 import { handleImageUpload } from '../utils/uploadHandler.js';
+import { FRONTEND_URL } from '../config/env.js';
 
 export const uploadPaymentProof = handleImageUpload;
 
@@ -268,7 +269,7 @@ export const STATUS_TRANSITIONS = {
 
 function buildStatusEmail(status, id, order, tpl = null) {
   const name = order.shipping_name || order.customer_name || 'there';
-  const storeUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+  const storeUrl = FRONTEND_URL;
   const vars = { name, order_id: id, tracking_number: order.tracking_number || '', courier: order.courier_name || '' };
 
   const configs = {

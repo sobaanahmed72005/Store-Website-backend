@@ -1,5 +1,7 @@
+import { FRONTEND_URL } from '../config/env.js';
+
 export function buildStoreUrl(slug) {
-  const base = process.env.FRONTEND_URL || 'http://localhost:5173';
+  const base = FRONTEND_URL;
   // "main" is the reserved slug for the bare base domain (no subdomain) — see middleware/tenant.js's extractSlug.
   if (slug === 'main') return base;
   try {
