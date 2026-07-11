@@ -15,6 +15,35 @@ function effectivePrice(product) {
   return product.is_on_sale && product.discount_price != null ? Number(product.discount_price) : Number(product.price);
 }
 
+function variantEffectivePrice(variant) {
+  return variant.discount_price != null && Number(variant.discount_price) < Number(variant.price)
+    ? Number(variant.discount_price)
+    : Number(variant.price);
+}
+
+// Server builds the label itself (e.g. "512GB") rather than trusting whatever the client sent —
+// same "never trust the client for anything money/stock-adjacent" discipline this file already
+// applies to price and stock.
+async function fetchVariantsWithLabels(businessId, variantIds) {
+  if (!variantIds.length) return [];
+  const [variantRows] = await pool.query(
+    `SELECT id, product_id, price, discount_price, stock FROM product_variants WHERE business_id = ? AND id IN (${variantIds.map(() => '?').join(',')})`,
+    [businessId, ...variantIds]
+  );
+  if (variantRows.length === 0) return [];
+  const [optionRows] = await pool.query(
+    `SELECT pvo.variant_id, o.value FROM product_variant_options pvo
+     JOIN category_attribute_options o ON o.id = pvo.option_id
+     WHERE pvo.variant_id IN (${variantRows.map(() => '?').join(',')})
+     ORDER BY pvo.variant_id, o.sort_order, o.id`,
+    variantRows.map((v) => v.id)
+  );
+  return variantRows.map((v) => ({
+    ...v,
+    label: optionRows.filter((o) => o.variant_id === v.id).map((o) => o.value).join(' / '),
+  }));
+}
+
 export async function createOrder(req, res) {
   const { shipping_name, shipping_address, shipping_city, phone, email, notes, items, discount_code, payment_method, payment_reference, payment_proof_image } = req.body;
   const user_id = req.user.id;
@@ -57,10 +86,31 @@ export async function createOrder(req, res) {
     return res.status(400).json({ error: 'One or more items in your cart are no longer available' });
   }
 
-  const requestedQtyByProduct = new Map();
+  // Never trust a client-submitted variantId at face value — it must resolve to a real variant
+  // that actually belongs to the same product the client claims, or a shopper could otherwise
+  // pair an arbitrary product id with a cheaper variant from something else entirely.
+  const variantIds = items.filter((item) => item.variantId != null).map((item) => item.variantId);
+  const variantRows = await fetchVariantsWithLabels(req.business.id, variantIds);
+  const variantById = new Map(variantRows.map((v) => [String(v.id), v]));
   for (const item of items) {
-    const key = String(item.id);
-    requestedQtyByProduct.set(key, (requestedQtyByProduct.get(key) ?? 0) + Math.trunc(Number(item.quantity)));
+    if (item.variantId == null) continue;
+    const variant = variantById.get(String(item.variantId));
+    if (!variant || String(variant.product_id) !== String(item.id)) {
+      return res.status(400).json({ error: 'Invalid variant selection' });
+    }
+  }
+
+  const requestedQtyByProduct = new Map();
+  const requestedQtyByVariant = new Map();
+  for (const item of items) {
+    const qty = Math.trunc(Number(item.quantity));
+    if (item.variantId != null) {
+      const key = String(item.variantId);
+      requestedQtyByVariant.set(key, (requestedQtyByVariant.get(key) ?? 0) + qty);
+    } else {
+      const key = String(item.id);
+      requestedQtyByProduct.set(key, (requestedQtyByProduct.get(key) ?? 0) + qty);
+    }
   }
   for (const [productIdKey, requestedQty] of requestedQtyByProduct) {
     const product = productById.get(productIdKey);
@@ -68,11 +118,20 @@ export async function createOrder(req, res) {
       return res.status(400).json({ error: `Only ${product.stock} of "${product.name}" left in stock` });
     }
   }
+  for (const [variantIdKey, requestedQty] of requestedQtyByVariant) {
+    const variant = variantById.get(variantIdKey);
+    if (requestedQty > variant.stock) {
+      const product = productById.get(String(variant.product_id));
+      return res.status(400).json({ error: `Only ${variant.stock} of "${product?.name || 'this item'}" (${variant.label}) left in stock` });
+    }
+  }
 
   const orderItems = items.map((item) => {
     const product = productById.get(String(item.id));
     const quantity = Math.trunc(Number(item.quantity));
-    return { product, quantity, price: effectivePrice(product) };
+    const variant = item.variantId != null ? variantById.get(String(item.variantId)) : null;
+    const price = variant ? variantEffectivePrice(variant) : effectivePrice(product);
+    return { product, variant, quantity, price };
   });
   const subtotal = orderItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
@@ -101,6 +160,18 @@ export async function createOrder(req, res) {
         await connection.rollback();
         const product = productById.get(productIdKey);
         return res.status(400).json({ error: `Only a limited quantity of "${product?.name || 'this item'}" is available. Please update your cart.` });
+      }
+    }
+    for (const [variantIdKey, requestedQty] of requestedQtyByVariant) {
+      const [stockResult] = await connection.query(
+        'UPDATE product_variants SET stock = stock - ? WHERE id = ? AND business_id = ? AND stock >= ?',
+        [requestedQty, variantIdKey, req.business.id, requestedQty]
+      );
+      if (stockResult.affectedRows === 0) {
+        await connection.rollback();
+        const variant = variantById.get(variantIdKey);
+        const product = productById.get(String(variant?.product_id));
+        return res.status(400).json({ error: `Only a limited quantity of "${product?.name || 'this item'}"${variant ? ` (${variant.label})` : ''} is available. Please update your cart.` });
       }
     }
 
@@ -137,10 +208,11 @@ export async function createOrder(req, res) {
     const orderId = orderResult.insertId;
 
     for (const item of orderItems) {
-      const isSalePrice = item.price < Number(item.product.price) ? 1 : 0;
+      const basePrice = item.variant ? Number(item.variant.price) : Number(item.product.price);
+      const isSalePrice = item.price < basePrice ? 1 : 0;
       await connection.query(
-        'INSERT INTO order_items (order_id, product_ref, product_name, product_image, quantity, price, is_sale_price) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [orderId, String(item.product.id), item.product.name, item.product.image ?? null, item.quantity, item.price, isSalePrice]
+        'INSERT INTO order_items (order_id, product_ref, variant_id, product_name, variant_label, product_image, quantity, price, is_sale_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [orderId, String(item.product.id), item.variant?.id ?? null, item.product.name, item.variant?.label ?? null, item.product.image ?? null, item.quantity, item.price, isSalePrice]
       );
     }
 

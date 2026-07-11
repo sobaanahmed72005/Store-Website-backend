@@ -103,13 +103,15 @@ CREATE TABLE IF NOT EXISTS cart_items (
   business_id INT NOT NULL,
   user_id INT NOT NULL,
   product_ref VARCHAR(255) NOT NULL,
+  variant_id INT NULL,
   product_name VARCHAR(255) NOT NULL,
+  variant_label VARCHAR(150) NULL,
   product_image VARCHAR(255),
   product_slug VARCHAR(220),
   price DECIMAL(10,2) NOT NULL,
   quantity INT NOT NULL DEFAULT 1,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE KEY unique_user_product (user_id, product_ref),
+  UNIQUE KEY unique_user_product_variant (user_id, product_ref, variant_id),
   FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
@@ -163,7 +165,9 @@ CREATE TABLE IF NOT EXISTS order_items (
   id INT AUTO_INCREMENT PRIMARY KEY,
   order_id INT NOT NULL,
   product_ref VARCHAR(255),
+  variant_id INT NULL,
   product_name VARCHAR(255) NOT NULL,
+  variant_label VARCHAR(150) NULL,
   product_image VARCHAR(255),
   quantity INT NOT NULL,
   price DECIMAL(10,2) NOT NULL,
@@ -199,6 +203,27 @@ CREATE TABLE IF NOT EXISTS product_attribute_values (
   option_id INT NOT NULL,
   UNIQUE KEY product_option (product_id, option_id),
   FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+  FOREIGN KEY (option_id) REFERENCES category_attribute_options(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS product_variants (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  business_id INT NOT NULL,
+  product_id INT NOT NULL,
+  price DECIMAL(10,2) NOT NULL,
+  discount_price DECIMAL(10,2) NULL,
+  stock INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE,
+  FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS product_variant_options (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  variant_id INT NOT NULL,
+  option_id INT NOT NULL,
+  UNIQUE KEY variant_option (variant_id, option_id),
+  FOREIGN KEY (variant_id) REFERENCES product_variants(id) ON DELETE CASCADE,
   FOREIGN KEY (option_id) REFERENCES category_attribute_options(id) ON DELETE CASCADE
 );
 

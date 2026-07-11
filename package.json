@@ -15,7 +15,8 @@
     "db:migrate-sessions": "node sql/migrate-sessions.js",
     "db:migrate-payment-proof": "node sql/migrate-payment-proof.js",
     "db:migrate-review-status": "node sql/migrate-review-status.js",
-    "db:migrate-product-video": "node sql/migrate-product-video.js"
+    "db:migrate-product-video": "node sql/migrate-product-video.js",
+    "db:migrate-product-variants": "node sql/migrate-product-variants.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",

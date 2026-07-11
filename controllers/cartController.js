@@ -3,7 +3,7 @@ import pool from '../config/db.js';
 export async function getCart(req, res) {
   const { userId } = req.params;
   const [rows] = await pool.query(
-    'SELECT id, product_ref, product_name, product_image, product_slug, price, quantity FROM cart_items WHERE business_id = ? AND user_id = ?',
+    'SELECT id, product_ref, variant_id, product_name, variant_label, product_image, product_slug, price, quantity FROM cart_items WHERE business_id = ? AND user_id = ?',
     [req.business.id, userId]
   );
   res.json(rows);
@@ -24,8 +24,8 @@ export async function replaceCart(req, res) {
       const qty = Math.trunc(Number(item.qty));
       const safeQty = Number.isInteger(qty) && qty >= 1 ? Math.min(qty, MAX_CART_QTY_PER_LINE) : 1;
       await connection.query(
-        'INSERT INTO cart_items (business_id, user_id, product_ref, product_name, product_image, product_slug, price, quantity) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        [req.business.id, userId, String(item.id), item.title, item.image ?? null, item.slug ?? null, item.price, safeQty]
+        'INSERT INTO cart_items (business_id, user_id, product_ref, variant_id, product_name, variant_label, product_image, product_slug, price, quantity) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [req.business.id, userId, String(item.id), item.variantId ?? null, item.title, item.variantLabel ?? null, item.image ?? null, item.slug ?? null, item.price, safeQty]
       );
     }
     await connection.commit();
