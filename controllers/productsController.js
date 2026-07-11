@@ -152,6 +152,21 @@ export async function getProducts(req, res) {
   res.json(await attachExtras(rows));
 }
 
+export async function suggestProducts(req, res) {
+  const q = String(req.query.q || '').trim();
+  if (!q) return res.json([]);
+
+  const [rows] = await pool.query(
+    `SELECT p.id, p.name, p.slug, p.image, p.price, p.discount_price, p.is_on_sale, c.name AS category_name
+     FROM products p LEFT JOIN categories c ON p.category_id = c.id
+     WHERE p.business_id = ? AND (p.name LIKE ? OR p.brand LIKE ? OR c.name LIKE ?)
+     ORDER BY (p.name LIKE ?) DESC, p.name ASC
+     LIMIT 8`,
+    [req.business.id, `%${q}%`, `%${q}%`, `%${q}%`, `${q}%`]
+  );
+  res.json(rows);
+}
+
 export async function getProductById(req, res) {
   const [rows] = await pool.query(
     'SELECT p.*, c.name AS category_name, c.slug AS category_slug FROM products p LEFT JOIN categories c ON p.category_id = c.id WHERE p.business_id = ? AND p.id = ?',
@@ -174,7 +189,7 @@ export async function getProductBySlug(req, res) {
 
 export async function createProduct(req, res) {
   const {
-    category_id, name, slug, brand, description, price, discount_price, stock, image,
+    category_id, name, slug, brand, description, price, discount_price, stock, image, video,
     is_featured, is_new_arrival, is_on_sale, attribute_option_ids, images,
   } = req.body;
   if (!name || !slug || price == null) {
@@ -196,11 +211,11 @@ export async function createProduct(req, res) {
   try {
     await connection.beginTransaction();
     const [result] = await connection.query(
-      `INSERT INTO products (business_id, category_id, name, slug, brand, description, price, discount_price, stock, image, is_featured, is_new_arrival, is_on_sale)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO products (business_id, category_id, name, slug, brand, description, price, discount_price, stock, image, video, is_featured, is_new_arrival, is_on_sale)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         req.business.id, category_id || null, name, slug, brand ?? null, description ?? null, price,
-        discount_price ?? null, stock ?? 0, image ?? null,
+        discount_price ?? null, stock ?? 0, image ?? null, video ?? null,
         Number(Boolean(is_featured)), Number(Boolean(is_new_arrival)), Number(Boolean(is_on_sale)),
       ]
     );
@@ -236,9 +251,35 @@ async function notifyBackInStock(businessId, productId) {
   }
 }
 
+// A product is "effectively" on sale only when both the flag and a discount price are set —
+// mirrors src/utils/pricing.js's getEffectivePrice on the frontend so both sides agree on
+// what price the customer actually pays.
+function getEffectivePrice({ price, discount_price, is_on_sale }) {
+  const onSale = Boolean(is_on_sale) && discount_price != null;
+  return onSale ? Number(discount_price) : Number(price);
+}
+
+async function notifyPriceDrop(businessId, productId, newPrice) {
+  const [rows] = await pool.query(
+    `SELECT u.email, u.name, p.name AS product_name, p.slug AS product_slug
+     FROM wishlist_items w
+     JOIN users u ON u.id = w.user_id
+     JOIN products p ON p.id = w.product_id
+     WHERE w.business_id = ? AND w.product_id = ?`,
+    [businessId, productId]
+  );
+  for (const row of rows) {
+    sendMail({
+      to: row.email,
+      subject: `Price drop on ${row.product_name}!`,
+      html: `<p>Hi ${escapeHtml(row.name)},</p><p>Good news — <strong>${escapeHtml(row.product_name)}</strong>, an item on your wishlist, just dropped in price to Rs.&nbsp;${Number(newPrice).toLocaleString()}. Grab it while the deal lasts!</p>`,
+    });
+  }
+}
+
 export async function updateProduct(req, res) {
   const {
-    category_id, name, slug, brand, description, price, discount_price, stock, image,
+    category_id, name, slug, brand, description, price, discount_price, stock, image, video,
     is_featured, is_new_arrival, is_on_sale, attribute_option_ids, images,
   } = req.body;
 
@@ -246,10 +287,14 @@ export async function updateProduct(req, res) {
     return res.status(400).json({ error: 'name, slug and price are required' });
   }
 
-  const [existingRows] = await pool.query('SELECT price, stock FROM products WHERE id = ? AND business_id = ?', [req.params.id, req.business.id]);
+  const [existingRows] = await pool.query(
+    'SELECT price, stock, discount_price, is_on_sale FROM products WHERE id = ? AND business_id = ?',
+    [req.params.id, req.business.id]
+  );
   if (existingRows.length === 0) return res.status(404).json({ error: 'Product not found' });
   const previousStock = existingRows[0].stock;
   const previousPrice = existingRows[0].price;
+  const previousEffectivePrice = getEffectivePrice(existingRows[0]);
 
   const priceStockError = validatePriceAndStock(price, stock);
   if (priceStockError) return res.status(400).json({ error: priceStockError });
@@ -267,10 +312,10 @@ export async function updateProduct(req, res) {
     await connection.beginTransaction();
     const [result] = await connection.query(
       `UPDATE products SET category_id = ?, name = ?, slug = ?, brand = ?, description = ?, price = ?,
-       discount_price = ?, stock = ?, image = ?, is_featured = ?, is_new_arrival = ?, is_on_sale = ? WHERE id = ? AND business_id = ?`,
+       discount_price = ?, stock = ?, image = ?, video = ?, is_featured = ?, is_new_arrival = ?, is_on_sale = ? WHERE id = ? AND business_id = ?`,
       [
         category_id || null, name, slug, brand ?? null, description ?? null, price,
-        discount_price ?? null, stock ?? 0, image ?? null,
+        discount_price ?? null, stock ?? 0, image ?? null, video ?? null,
         Number(Boolean(is_featured)), Number(Boolean(is_new_arrival)), Number(Boolean(is_on_sale)),
         req.params.id, req.business.id,
       ]
@@ -298,6 +343,11 @@ export async function updateProduct(req, res) {
   const newStock = Number(stock ?? 0);
   if (previousStock <= 0 && newStock > 0) {
     notifyBackInStock(req.business.id, req.params.id);
+  }
+
+  const newEffectivePrice = getEffectivePrice({ price, discount_price, is_on_sale });
+  if (newEffectivePrice < previousEffectivePrice) {
+    notifyPriceDrop(req.business.id, req.params.id, newEffectivePrice);
   }
 }
 

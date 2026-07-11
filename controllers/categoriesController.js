@@ -1,23 +1,5 @@
 import pool from '../config/db.js';
-
-async function getAttributesForCategory(categoryId) {
-  const [attributes] = await pool.query(
-    'SELECT id, name FROM category_attributes WHERE category_id = ? ORDER BY sort_order, id',
-    [categoryId]
-  );
-  if (attributes.length === 0) return [];
-
-  const [options] = await pool.query(
-    `SELECT id, attribute_id, value FROM category_attribute_options WHERE attribute_id IN (${attributes.map(() => '?').join(',')}) ORDER BY sort_order, id`,
-    attributes.map((a) => a.id)
-  );
-
-  return attributes.map((attr) => ({
-    id: attr.id,
-    name: attr.name,
-    options: options.filter((o) => o.attribute_id === attr.id).map((o) => ({ id: o.id, value: o.value })),
-  }));
-}
+import { getMergedAttributesForCategoryAndDescendants } from '../utils/categoryAttributes.js';
 
 export async function getCategories(req, res) {
   const [rows] = await pool.query('SELECT * FROM categories WHERE business_id = ? ORDER BY sort_order, name', [req.business.id]);
@@ -46,7 +28,7 @@ export async function getCategoryBySlug(req, res) {
     req.business.id,
     category.id,
   ]);
-  const attributes = await getAttributesForCategory(category.id);
+  const attributes = await getMergedAttributesForCategoryAndDescendants(req.business.id, category.id);
   res.json({ ...category, subcategories, attributes });
 }
 

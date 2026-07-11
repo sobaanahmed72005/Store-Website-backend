@@ -264,7 +264,7 @@ export const STATUS_TRANSITIONS = {
   packed:            ['shipped', 'cancelled'],
   shipped:           ['out_for_delivery'],
   out_for_delivery:  ['delivered'],
-  delivered:         ['returned'],
+  delivered:         [],
   returned:          [],
   cancelled:         [],
   pending_payment:   [],

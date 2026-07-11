@@ -102,6 +102,21 @@ export async function adminList(req, res) {
   res.json(rows);
 }
 
+export async function getNewSubscribers(req, res) {
+  const sinceId = Number(req.query.since_id) || 0;
+  const [subscribers] = await pool.query(
+    `SELECT id, email, created_at FROM newsletter_subscribers
+     WHERE business_id = ? AND id > ? AND unsubscribed_at IS NULL
+     ORDER BY id DESC LIMIT 20`,
+    [req.business.id, sinceId]
+  );
+  const [[{ maxId }]] = await pool.query(
+    'SELECT COALESCE(MAX(id), 0) AS maxId FROM newsletter_subscribers WHERE business_id = ?',
+    [req.business.id]
+  );
+  res.json({ subscribers, latestId: maxId });
+}
+
 export async function adminDelete(req, res) {
   const [result] = await pool.query(
     'DELETE FROM newsletter_subscribers WHERE id = ? AND business_id = ?',
