@@ -6,7 +6,7 @@ import { sendMail } from '../utils/mailer.js';
 import { wrapEmail, emailGreeting, emailButton, emailParagraph, emailDivider } from '../utils/emailTemplate.js';
 import { getEmailTemplate, applyPlaceholders } from '../utils/emailLoader.js';
 import { getSiteName } from './contentController.js';
-import { REFRESH_COOKIE, setAuthCookies, clearAuthCookies } from '../utils/authCookies.js';
+import { REFRESH_COOKIE, ACCESS_TOKEN_MAX_AGE, setAuthCookies, clearAuthCookies } from '../utils/authCookies.js';
 import { encryptSecret, decryptSecret } from '../utils/crypto.js';
 import { generateTotpSecret, verifyTotpToken, buildOtpAuthQrCode, generateRecoveryCodes } from '../utils/totp.js';
 import { createChallengeStore } from '../utils/challengeStore.js';
@@ -26,12 +26,14 @@ function publicUser(user) {
 }
 
 function issueSession(res, user, businessId, sessionId) {
+  const accessTokenExpiresAt = Date.now() + ACCESS_TOKEN_MAX_AGE;
   const token = jwt.sign(
     { id: user.id, name: user.name, email: user.email, role: user.role, business_id: businessId, session_id: sessionId },
     JWT_SECRET,
-    { expiresIn: '15m' }
+    { expiresIn: ACCESS_TOKEN_MAX_AGE / 1000 }
   );
   setAuthCookies(res, token, sessionId);
+  return accessTokenExpiresAt;
 }
 
 async function verifyTwoFactorCode(user, rawToken) {
@@ -115,8 +117,8 @@ export async function register(req, res) {
   );
   const user = { id: result.insertId, name, email, role: 'customer', email_verified: 0 };
   const sessionId = await createSession(user.id);
-  issueSession(res, user, req.business.id, sessionId);
-  res.status(201).json({ user });
+  const accessTokenExpiresAt = issueSession(res, user, req.business.id, sessionId);
+  res.status(201).json({ user, accessTokenExpiresAt });
 
   buildVerificationEmail(name, verificationToken, req.business.id).then(({ subject, html }) => {
     sendMail({ to: email, subject, html });
@@ -141,8 +143,8 @@ async function authenticateUser(req, res, requiredRole) {
   }
 
   const sessionId = await createSession(user.id);
-  issueSession(res, user, req.business.id, sessionId);
-  res.json({ user: publicUser(user) });
+  const accessTokenExpiresAt = issueSession(res, user, req.business.id, sessionId);
+  res.json({ user: publicUser(user), accessTokenExpiresAt });
 }
 
 export async function login(req, res) {
@@ -178,8 +180,8 @@ export async function verifyTwoFactorLogin(req, res) {
 
   loginChallenges.consume(challengeId);
   const sessionId = await createSession(user.id);
-  issueSession(res, user, challenge.businessId, sessionId);
-  res.json({ user: publicUser(user) });
+  const accessTokenExpiresAt = issueSession(res, user, challenge.businessId, sessionId);
+  res.json({ user: publicUser(user), accessTokenExpiresAt });
 }
 
 export async function me(req, res) {
@@ -191,7 +193,9 @@ export async function me(req, res) {
     [req.user.id, req.business.id]
   );
   if (rows.length === 0) return res.status(404).json({ error: 'User not found' });
-  res.json({ user: rows[0] });
+  // req.user.exp is the JWT's own expiry claim (seconds since epoch) — reporting that directly
+  // reflects the token actually on this request, rather than recomputing a fresh guess.
+  res.json({ user: rows[0], accessTokenExpiresAt: req.user.exp * 1000 });
 }
 
 export async function refresh(req, res) {
@@ -218,8 +222,8 @@ export async function refresh(req, res) {
     return res.status(401).json({ error: 'Invalid session for this store' });
   }
 
-  issueSession(res, user, user.business_id, sessionId);
-  res.json({ message: 'Refreshed' });
+  const accessTokenExpiresAt = issueSession(res, user, user.business_id, sessionId);
+  res.json({ message: 'Refreshed', accessTokenExpiresAt });
 }
 
 export async function logout(req, res) {
@@ -291,8 +295,8 @@ export async function disableTwoFactor(req, res) {
   // session immediately after, so the person taking this action isn't logged out of it.
   await revokeAllSessions(req.user.id);
   const sessionId = await createSession(req.user.id);
-  issueSession(res, req.user, req.business.id, sessionId);
-  res.json({ message: 'Two-factor authentication disabled' });
+  const accessTokenExpiresAt = issueSession(res, req.user, req.business.id, sessionId);
+  res.json({ message: 'Two-factor authentication disabled', accessTokenExpiresAt });
 }
 
 export async function updateProfile(req, res) {
@@ -312,8 +316,8 @@ export async function updateProfile(req, res) {
   const user = { id: req.user.id, name: name.trim(), email: email.trim(), role: req.user.role, email_verified: rows[0]?.email_verified };
   // Just refreshing the cookie's payload (name/email may have changed) — reuse the same
   // session rather than minting a new one, since nothing here needs to be revoked.
-  issueSession(res, user, req.business.id, req.sessionId);
-  res.json({ user });
+  const accessTokenExpiresAt = issueSession(res, user, req.business.id, req.sessionId);
+  res.json({ user, accessTokenExpiresAt });
 }
 
 export async function changePassword(req, res) {
@@ -336,8 +340,8 @@ export async function changePassword(req, res) {
   // device making this request, so changing your own password doesn't log you out too.
   await revokeAllSessions(req.user.id);
   const sessionId = await createSession(req.user.id);
-  issueSession(res, req.user, req.business.id, sessionId);
-  res.json({ message: 'Password updated' });
+  const accessTokenExpiresAt = issueSession(res, req.user, req.business.id, sessionId);
+  res.json({ message: 'Password updated', accessTokenExpiresAt });
 }
 
 export async function forgotPassword(req, res) {

@@ -4,8 +4,10 @@ export const AUTH_COOKIE = 'cz_token';
 export const REFRESH_COOKIE = 'cz_refresh';
 
 // Access token: short-lived, decoded on every request with no DB lookup (see middleware/auth.js)
-// — its own expiry is what bounds how long a stolen/leaked token stays useful.
-const ACCESS_TOKEN_MAX_AGE = 15 * 60 * 1000;
+// — its own expiry is what bounds how long a stolen/leaked token stays useful. Exported so
+// authController.js can derive the JWT's expiresIn and the expiry it reports to the frontend
+// from this single constant instead of hardcoding it a second time.
+export const ACCESS_TOKEN_MAX_AGE = 15 * 60 * 1000;
 
 // Refresh token: just the session's id (see utils/sessions.js) — an unguessable random value
 // that's revocable server-side. Its lifetime is how long a user can stay signed in without
