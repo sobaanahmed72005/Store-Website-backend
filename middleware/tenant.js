@@ -1,4 +1,5 @@
 import pool from '../config/db.js';
+import { DEFAULT_STORE_SLUG, NODE_ENV } from '../config/env.js';
 
 const BASE_HOSTS = ['localhost', '127.0.0.1'];
 
@@ -10,15 +11,19 @@ function extractSlug(req) {
   // Single-store deployments set this so tenant resolution doesn't depend on guessing the
   // slug from whatever domain the request happened to arrive on (which breaks the moment the
   // frontend and backend live on different domains, e.g. yourdomain.com vs api.yourdomain.com).
-  if (process.env.DEFAULT_STORE_SLUG) return process.env.DEFAULT_STORE_SLUG;
+  if (DEFAULT_STORE_SLUG) return DEFAULT_STORE_SLUG;
 
-  if (process.env.NODE_ENV !== 'production') {
+  if (NODE_ENV !== 'production') {
     const headerSlug = req.headers['x-store-slug'];
     if (headerSlug) return String(headerSlug).toLowerCase().trim();
   }
 
   const hostname = (req.hostname || '').toLowerCase();
-  if (BASE_HOSTS.includes(hostname)) return 'main';
+  // Only a local-dev convenience (so http://127.0.0.1:5000 resolves instead of misparsing the
+  // IP's dots as a subdomain) — gated to non-production for the same reason X-Store-Slug is
+  // above: the Host header is caller-controlled, so honoring it in production would let anyone
+  // who can reach the origin directly force resolution to the 'main' tenant.
+  if (NODE_ENV !== 'production' && BASE_HOSTS.includes(hostname)) return 'main';
 
   const parts = hostname.split('.');
   if (parts.length > 1) return parts[0];

@@ -1,5 +1,6 @@
 import PDFDocument from 'pdfkit'
 import pool from '../config/db.js'
+import { BACKEND_URL, FRONTEND_URL } from '../config/env.js'
 
 // Matches the site's teal/gold theme (src/index.css --color-cz-*)
 const HEADER_BG = '#2b6580' // cz-header — same shade the live site header uses behind the logo
@@ -62,8 +63,8 @@ export async function generateInvoicePdf(orderId, businessId) {
     if (row.content_key === 'footer-brand')  { storeAddress = v.address || ''; storePhone = v.phone || ''; storeEmail = v.email || '' }
   }
 
-  const backendUrl  = process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 5000}`
-  const websiteUrl  = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/^https?:\/\//, '')
+  const backendUrl  = BACKEND_URL
+  const websiteUrl  = FRONTEND_URL.replace(/^https?:\/\//, '')
   const logoAbsUrl  = logoUrl ? (logoUrl.startsWith('http') ? logoUrl : `${backendUrl}${logoUrl}`) : ''
   const logoBuf     = logoAbsUrl ? await fetchImageBuffer(logoAbsUrl) : null
 

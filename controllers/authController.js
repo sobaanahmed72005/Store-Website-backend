@@ -6,11 +6,12 @@ import { sendMail } from '../utils/mailer.js';
 import { wrapEmail, emailGreeting, emailButton, emailParagraph, emailDivider } from '../utils/emailTemplate.js';
 import { getEmailTemplate, applyPlaceholders } from '../utils/emailLoader.js';
 import { getSiteName } from './contentController.js';
-import { AUTH_COOKIE, setAuthCookie, clearAuthCookie } from '../utils/authCookies.js';
+import { REFRESH_COOKIE, setAuthCookies, clearAuthCookies } from '../utils/authCookies.js';
 import { encryptSecret, decryptSecret } from '../utils/crypto.js';
 import { generateTotpSecret, verifyTotpToken, buildOtpAuthQrCode, generateRecoveryCodes } from '../utils/totp.js';
 import { createChallengeStore } from '../utils/challengeStore.js';
 import { createSession, revokeSession, revokeAllSessions } from '../utils/sessions.js';
+import { JWT_SECRET, FRONTEND_URL } from '../config/env.js';
 
 const BCRYPT_ROUNDS = 12;
 const loginChallenges = createChallengeStore();
@@ -26,11 +27,11 @@ function publicUser(user) {
 
 function issueSession(res, user, businessId, sessionId) {
   const token = jwt.sign(
-    { id: user.id, email: user.email, role: user.role, business_id: businessId, session_id: sessionId },
-    process.env.JWT_SECRET,
-    { expiresIn: '7d' }
+    { id: user.id, name: user.name, email: user.email, role: user.role, business_id: businessId, session_id: sessionId },
+    JWT_SECRET,
+    { expiresIn: '15m' }
   );
-  setAuthCookie(res, AUTH_COOKIE, token);
+  setAuthCookies(res, token, sessionId);
 }
 
 async function verifyTwoFactorCode(user, rawToken) {
@@ -53,7 +54,7 @@ async function verifyTwoFactorCode(user, rawToken) {
 }
 
 async function buildVerificationEmail(name, token, businessId) {
-  const link = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/verify-email?token=${token}`;
+  const link = `${FRONTEND_URL}/verify-email?token=${token}`;
   const [tpl, storeName] = await Promise.all([
     getEmailTemplate(businessId, 'signup').catch(() => null),
     getSiteName(businessId),
@@ -75,7 +76,7 @@ async function buildVerificationEmail(name, token, businessId) {
 }
 
 async function buildPasswordResetEmail(name, token, businessId) {
-  const link = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password?token=${token}`;
+  const link = `${FRONTEND_URL}/reset-password?token=${token}`;
   const [tpl, storeName] = await Promise.all([
     getEmailTemplate(businessId, 'password_reset').catch(() => null),
     getSiteName(businessId),
@@ -182,29 +183,59 @@ export async function verifyTwoFactorLogin(req, res) {
 }
 
 export async function me(req, res) {
-  res.json({ user: req.user });
+  // req.user is only the JWT payload (id/name/email/role/business_id) — requireAuth no longer
+  // hits the DB on every request, so the fuller profile is fetched here instead, on this one
+  // lower-frequency endpoint.
+  const [rows] = await pool.query(
+    'SELECT id, name, email, role, email_verified, saved_phone, saved_address, saved_city, totp_enabled FROM users WHERE id = ? AND business_id = ?',
+    [req.user.id, req.business.id]
+  );
+  if (rows.length === 0) return res.status(404).json({ error: 'User not found' });
+  res.json({ user: rows[0] });
+}
+
+export async function refresh(req, res) {
+  // The refresh cookie is just the session id itself (see utils/sessions.js / authCookies.js)
+  // — this is the one DB round-trip per ~15-minute access-token lifetime that replaces what
+  // used to be a query on every single authenticated request.
+  const sessionId = req.cookies?.[REFRESH_COOKIE];
+  if (!sessionId) return res.status(401).json({ error: 'Not signed in' });
+
+  const [rows] = await pool.query(
+    `SELECT u.id, u.name, u.email, u.role, u.business_id
+     FROM sessions s
+     JOIN users u ON u.id = s.user_id
+     WHERE s.id = ? AND s.revoked_at IS NULL`,
+    [sessionId]
+  );
+  if (rows.length === 0) {
+    clearAuthCookies(res);
+    return res.status(401).json({ error: 'Session expired, please sign in again' });
+  }
+
+  const user = rows[0];
+  if (user.business_id !== req.business.id) {
+    return res.status(401).json({ error: 'Invalid session for this store' });
+  }
+
+  issueSession(res, user, user.business_id, sessionId);
+  res.json({ message: 'Refreshed' });
 }
 
 export async function logout(req, res) {
   // Revokes only this one session (device), not every session on the account — logging
-  // out on a phone shouldn't also sign the same user out of their laptop. Logout still
-  // succeeds even if the token is already invalid/expired — the goal is revocation of
-  // whatever this cookie refers to, not re-authentication.
-  const token = req.cookies?.[AUTH_COOKIE];
-  if (token) {
-    try {
-      const payload = jwt.verify(token, process.env.JWT_SECRET);
-      if (payload.session_id) await revokeSession(payload.session_id);
-    } catch {
-      // Invalid/expired token — nothing to revoke, just clear the cookie below.
-    }
-  }
-  clearAuthCookie(res, AUTH_COOKIE);
+  // out on a phone shouldn't also sign the same user out of their laptop. Reads the session
+  // id straight from the refresh cookie rather than decoding the access token, since the
+  // access token is often already expired (15-minute lifetime) by the time someone logs out.
+  const sessionId = req.cookies?.[REFRESH_COOKIE];
+  if (sessionId) await revokeSession(sessionId).catch(() => {});
+  clearAuthCookies(res);
   res.json({ message: 'Logged out' });
 }
 
 export async function twoFactorStatus(req, res) {
-  res.json({ enabled: Boolean(req.user.totp_enabled) });
+  const [rows] = await pool.query('SELECT totp_enabled FROM users WHERE id = ?', [req.user.id]);
+  res.json({ enabled: Boolean(rows[0]?.totp_enabled) });
 }
 
 export async function setupTwoFactor(req, res) {
@@ -277,7 +308,8 @@ export async function updateProfile(req, res) {
     throw err;
   }
 
-  const user = { id: req.user.id, name: name.trim(), email: email.trim(), role: req.user.role, email_verified: req.user.email_verified };
+  const [rows] = await pool.query('SELECT email_verified FROM users WHERE id = ?', [req.user.id]);
+  const user = { id: req.user.id, name: name.trim(), email: email.trim(), role: req.user.role, email_verified: rows[0]?.email_verified };
   // Just refreshing the cookie's payload (name/email may have changed) — reuse the same
   // session rather than minting a new one, since nothing here needs to be revoked.
   issueSession(res, user, req.business.id, req.sessionId);

@@ -3,19 +3,17 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import mysql from 'mysql2/promise';
 import bcrypt from 'bcryptjs';
-import dotenv from 'dotenv';
-
-dotenv.config();
+import { DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME, ADMIN_NAME, ADMIN_EMAIL, ADMIN_PASSWORD } from '../config/env.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const dbName = process.env.DB_NAME;
+const dbName = DB_NAME;
 
 async function run() {
   const connection = await mysql.createConnection({
-    host: process.env.DB_HOST,
-    port: process.env.DB_PORT,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
+    host: DB_HOST,
+    port: DB_PORT,
+    user: DB_USER,
+    password: DB_PASSWORD,
     multipleStatements: true,
   });
 
@@ -44,22 +42,22 @@ async function run() {
     console.log('Business with slug "main" already exists, skipping.');
   }
 
-  if (process.env.ADMIN_EMAIL && process.env.ADMIN_PASSWORD) {
+  if (ADMIN_EMAIL && ADMIN_PASSWORD) {
     const [adminRows] = await connection.query(
       'SELECT id FROM users WHERE business_id = ? AND email = ?',
-      [businessId, process.env.ADMIN_EMAIL],
+      [businessId, ADMIN_EMAIL],
     );
     if (adminRows.length === 0) {
-      const passwordHash = await bcrypt.hash(process.env.ADMIN_PASSWORD, 12);
+      const passwordHash = await bcrypt.hash(ADMIN_PASSWORD, 12);
       const [result] = await connection.query(
         `INSERT INTO users (business_id, name, email, password_hash, role, email_verified)
          VALUES (?, ?, ?, ?, 'admin', 1)`,
-        [businessId, process.env.ADMIN_NAME || 'Store Admin', process.env.ADMIN_EMAIL, passwordHash],
+        [businessId, ADMIN_NAME, ADMIN_EMAIL, passwordHash],
       );
       await connection.query('UPDATE businesses SET owner_user_id = ? WHERE id = ? AND owner_user_id IS NULL', [result.insertId, businessId]);
-      console.log(`Created store admin account: ${process.env.ADMIN_EMAIL}`);
+      console.log(`Created store admin account: ${ADMIN_EMAIL}`);
     } else {
-      console.log(`Store admin ${process.env.ADMIN_EMAIL} already exists, skipping.`);
+      console.log(`Store admin ${ADMIN_EMAIL} already exists, skipping.`);
     }
   } else {
     console.log('ADMIN_EMAIL / ADMIN_PASSWORD not set — skipping store admin seed.');
