@@ -1,5 +1,6 @@
 import pool from '../config/db.js';
 import { buildStoreUrl } from '../utils/storeUrl.js';
+import { ADMIN_PATH } from '../config/env.js';
 
 // /shop is the canonical all-products listing (see src/pages/Products.jsx); /products
 // itself is a near-duplicate that canonicalizes to it, so it's excluded here.
@@ -14,7 +15,7 @@ const STATIC_PATHS = [
 
 export async function getRobotsTxt(req, res) {
   const origin = buildStoreUrl(req.business.slug);
-  const adminPath = process.env.ADMIN_PATH || '/mgmt-8f2k1c';
+  const adminPath = ADMIN_PATH;
   const lines = [
     'User-agent: *',
     `Disallow: ${adminPath}`,

@@ -1,4 +1,5 @@
 import pool from '../config/db.js';
+import { FRONTEND_URL } from '../config/env.js';
 import { sendMail } from './mailer.js';
 import { wrapEmail, emailGreeting, emailParagraph, emailDivider, escapeHtml } from './emailTemplate.js';
 import { getEmailTemplate, applyPlaceholders } from './emailLoader.js';
@@ -33,7 +34,7 @@ export async function sendReviewReminders() {
 
         if (!items.length) continue;
 
-        const storeUrl  = process.env.FRONTEND_URL || 'http://localhost:5173';
+        const storeUrl  = FRONTEND_URL;
         const name      = order.shipping_name || 'there';
         const orderDate = new Date(order.delivered_at).toLocaleDateString('en-GB', {
           day: '2-digit', month: 'long', year: 'numeric',

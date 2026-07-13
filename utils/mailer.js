@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer';
+import { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM } from '../config/env.js';
 
 let transporter = null;
 let loggedFallbackNotice = false;
@@ -6,12 +7,12 @@ let loggedFallbackNotice = false;
 function getTransporter() {
   if (transporter) return transporter;
 
-  if (process.env.SMTP_HOST) {
+  if (SMTP_HOST) {
     transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: Number(process.env.SMTP_PORT) || 587,
-      secure: Number(process.env.SMTP_PORT) === 465,
-      auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } : undefined,
+      host: SMTP_HOST,
+      port: Number(SMTP_PORT) || 587,
+      secure: Number(SMTP_PORT) === 465,
+      auth: SMTP_USER ? { user: SMTP_USER, pass: SMTP_PASS } : undefined,
     });
     return transporter;
   }
@@ -33,7 +34,7 @@ function getTransporter() {
 
 export async function sendMail({ to, subject, html, attachments, replyTo }) {
   try {
-    const from = process.env.SMTP_FROM || 'Store <no-reply@example.com>';
+    const from = SMTP_FROM;
     const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
     await getTransporter().sendMail({ from, to, subject, html, text, attachments, replyTo });
   } catch (err) {

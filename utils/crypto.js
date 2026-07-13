@@ -1,9 +1,10 @@
 import crypto from 'crypto';
+import { CREDENTIALS_ENCRYPTION_KEY } from '../config/env.js';
 
 const ALGORITHM = 'aes-256-gcm';
 
 function getKey() {
-  const raw = process.env.CREDENTIALS_ENCRYPTION_KEY;
+  const raw = CREDENTIALS_ENCRYPTION_KEY;
   if (!raw) throw new Error('CREDENTIALS_ENCRYPTION_KEY is not set — required to store/read payment and courier API credentials');
   const key = Buffer.from(raw, 'hex');
   if (key.length !== 32) throw new Error('CREDENTIALS_ENCRYPTION_KEY must be a 64-character hex string (32 bytes)');
