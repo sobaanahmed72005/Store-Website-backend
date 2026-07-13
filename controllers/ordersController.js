@@ -1,3 +1,5 @@
+import fs from 'fs/promises';
+import path from 'path';
 import pool from '../config/db.js';
 import { sendMail } from '../utils/mailer.js';
 import { wrapEmail, emailGreeting, emailButton, emailParagraph, emailOrderTable, emailStatusBadge, emailDivider, emailInvoiceBlock, escapeHtml } from '../utils/emailTemplate.js';
@@ -8,9 +10,12 @@ import { getEmailTemplate, applyPlaceholders } from '../utils/emailLoader.js';
 import { getSiteName } from './contentController.js';
 import { logAudit } from '../utils/auditLog.js';
 import { handleImageUpload } from '../utils/uploadHandler.js';
+import { paymentProofsDir, GENERATED_FILENAME_PATTERN } from '../middleware/upload.js';
 import { FRONTEND_URL } from '../config/env.js';
 
 export const uploadPaymentProof = handleImageUpload;
+
+const PAYMENT_PROOF_URL_PATTERN = new RegExp(`^/orders/payment-proof/(${GENERATED_FILENAME_PATTERN.source.slice(1, -1)})$`);
 
 function effectivePrice(product) {
   return product.is_on_sale && product.discount_price != null ? Number(product.discount_price) : Number(product.price);
@@ -38,6 +43,14 @@ export async function createOrder(req, res) {
   // both mandatory: the reference alone is just a typed-in claim, easy to fabricate or reuse.
   if (payment_method !== 'cod' && (!payment_reference?.trim() || !payment_proof_image)) {
     return res.status(400).json({ error: 'A transaction reference and payment screenshot are required for this payment method' });
+  }
+  if (payment_method !== 'cod') {
+    // payment_proof_image must be a filename this app's own upload endpoint actually wrote to
+    // disk, not an arbitrary client-supplied string or external URL — otherwise anyone could
+    // "prove" payment with nothing behind it, or point an admin's browser at a URL of their choosing.
+    const match = PAYMENT_PROOF_URL_PATTERN.exec(payment_proof_image);
+    const exists = match && await fs.access(path.join(paymentProofsDir, match[1])).then(() => true, () => false);
+    if (!exists) return res.status(400).json({ error: 'Invalid payment screenshot' });
   }
 
   const MAX_QTY_PER_LINE = 999;
@@ -147,10 +160,24 @@ export async function createOrder(req, res) {
 
     if (resolvedDiscount) {
       const singleUseGuard = resolvedDiscount.reusable ? null : resolvedDiscount.id;
-      await connection.query(
-        'INSERT INTO discount_code_redemptions (discount_code_id, user_id, order_id, single_use_guard) VALUES (?, ?, ?, ?)',
-        [resolvedDiscount.id, user_id, orderId, singleUseGuard]
-      );
+      try {
+        await connection.query(
+          'INSERT INTO discount_code_redemptions (discount_code_id, user_id, order_id, single_use_guard) VALUES (?, ?, ?, ?)',
+          [resolvedDiscount.id, user_id, orderId, singleUseGuard]
+        );
+      } catch (err) {
+        // The single_use_guard_user unique index is the DB-level backstop for the FOR UPDATE
+        // lock in resolveDiscount() (see sql/migrate-discount-guard.js) — normally that lock
+        // already catches a repeat redemption with the friendly message below, but if it's ever
+        // bypassed, this still needs to fail as a clean 400 and not lose the whole order to a
+        // raw 500 (the transaction-wide rollback below would otherwise take the valid order,
+        // items, and stock decrement down with it).
+        if (err.code === 'ER_DUP_ENTRY') {
+          await connection.rollback();
+          return res.status(400).json({ error: 'You have already used this discount code' });
+        }
+        throw err;
+      }
     }
 
     await connection.commit();
@@ -197,6 +224,29 @@ export async function createOrder(req, res) {
   }
 }
 
+// Payment-proof screenshots can contain bank details/PII, so unlike product images they're not
+// served through the public /uploads static mount — this is the only way to fetch one, and it's
+// gated to the order's own customer or an admin rather than being world-readable by filename.
+export async function servePaymentProof(req, res) {
+  if (!GENERATED_FILENAME_PATTERN.test(req.params.filename)) {
+    return res.status(400).json({ error: 'Invalid filename' });
+  }
+
+  const url = `/orders/payment-proof/${req.params.filename}`;
+  const [rows] = await pool.query(
+    'SELECT user_id FROM orders WHERE business_id = ? AND payment_proof_image = ?',
+    [req.business.id, url]
+  );
+  if (rows.length === 0) return res.status(404).json({ error: 'Not found' });
+  if (req.user.role !== 'admin' && rows[0].user_id !== req.user.id) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  res.sendFile(path.join(paymentProofsDir, req.params.filename), (err) => {
+    if (err && !res.headersSent) res.status(404).json({ error: 'Not found' });
+  });
+}
+
 export async function getOrdersByUser(req, res) {
   const { userId } = req.params;
   const [orders] = await pool.query('SELECT * FROM orders WHERE business_id = ? AND user_id = ? ORDER BY created_at DESC', [req.business.id, userId]);
@@ -217,12 +267,23 @@ const DUPLICATE_REFERENCE_SUBQUERY = `
    WHERE o2.business_id = o.business_id AND o2.payment_reference = o.payment_reference)
 `;
 
+// Same red flag, for the screenshot itself — createOrder only verifies a payment_proof_image
+// points to a file that genuinely exists (see PAYMENT_PROOF_URL_PATTERN below), not that the
+// order's own customer was the one who uploaded it, so someone could resubmit another order's
+// real screenshot as their own "proof."
+const DUPLICATE_PROOF_IMAGE_SUBQUERY = `
+  (SELECT COUNT(*) FROM orders o2
+   WHERE o2.business_id = o.business_id AND o2.payment_proof_image = o.payment_proof_image)
+`;
+
 export async function getAllOrders(req, res) {
   const [orders] = await pool.query(
     `SELECT o.*, u.name AS customer_name, u.email AS customer_email,
             (SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.id) AS item_count,
-            CASE WHEN o.payment_reference IS NOT NULL AND ${DUPLICATE_REFERENCE_SUBQUERY} > 1
-                 THEN 1 ELSE 0 END AS is_duplicate_reference
+            CASE WHEN o.payment_reference IS NOT NULL AND o.payment_reference != '' AND ${DUPLICATE_REFERENCE_SUBQUERY} > 1
+                 THEN 1 ELSE 0 END AS is_duplicate_reference,
+            CASE WHEN o.payment_proof_image IS NOT NULL AND o.payment_proof_image != '' AND ${DUPLICATE_PROOF_IMAGE_SUBQUERY} > 1
+                 THEN 1 ELSE 0 END AS is_duplicate_proof_image
      FROM orders o JOIN users u ON o.user_id = u.id
      WHERE o.business_id = ?
      ORDER BY o.created_at DESC`,
@@ -247,8 +308,10 @@ export async function getNewOrders(req, res) {
 export async function getOrderById(req, res) {
   const [orders] = await pool.query(
     `SELECT o.*, u.name AS customer_name, u.email AS customer_email,
-            CASE WHEN o.payment_reference IS NOT NULL AND ${DUPLICATE_REFERENCE_SUBQUERY} > 1
-                 THEN 1 ELSE 0 END AS is_duplicate_reference
+            CASE WHEN o.payment_reference IS NOT NULL AND o.payment_reference != '' AND ${DUPLICATE_REFERENCE_SUBQUERY} > 1
+                 THEN 1 ELSE 0 END AS is_duplicate_reference,
+            CASE WHEN o.payment_proof_image IS NOT NULL AND o.payment_proof_image != '' AND ${DUPLICATE_PROOF_IMAGE_SUBQUERY} > 1
+                 THEN 1 ELSE 0 END AS is_duplicate_proof_image
      FROM orders o JOIN users u ON o.user_id = u.id WHERE o.business_id = ? AND o.id = ?`,
     [req.business.id, req.params.id]
   );
@@ -424,8 +487,24 @@ export async function updateOrderStatus(req, res) {
   const allowed = STATUS_TRANSITIONS[order.status] ?? [];
   if (!allowed.includes(status)) return res.status(400).json({ error: `Cannot move from ${order.status} to ${status}` });
 
+  const deliveredSet = status === 'delivered' ? ', delivered_at = NOW()' : '';
+  // Claim the transition atomically *before* booking a real courier shipment below. Booking
+  // first (the old order) meant two concurrent requests could both pass the checks above and
+  // both book a real Leopards shipment; only one would win this update, leaving the loser's
+  // booking orphaned (real money spent, no record of it anywhere). Guarding on the status we
+  // read above also means two admins acting on the same order at the same instant can't
+  // silently overwrite each other — the loser gets a clear conflict instead of a lost update.
+  const [claimResult] = await pool.query(
+    `UPDATE orders SET status = ?${deliveredSet} WHERE id = ? AND business_id = ? AND status = ?`,
+    [status, req.params.id, req.business.id, order.status],
+  );
+  if (claimResult.affectedRows === 0) {
+    return res.status(409).json({ error: 'This order was updated by someone else. Please refresh and try again.' });
+  }
+
   // Auto-book with Leopards the moment an order is marked Shipped, unless the
-  // admin already entered a tracking number manually for this order.
+  // admin already entered a tracking number manually for this order. Only runs now that this
+  // request has confirmed it actually won the transition above.
   let booked = null;
   let courierWarning = null;
   if (status === 'shipped' && !order.tracking_number) {
@@ -433,23 +512,16 @@ export async function updateOrderStatus(req, res) {
       const courierSettings = await getCourierSettings(req.business.id);
       if (courierSettings.enabled && isLeopardsProvider(courierSettings.provider)) {
         booked = await bookLeopardsPacket(req.business.id, order);
+        await pool.query(
+          'UPDATE orders SET courier_name = ?, tracking_number = ? WHERE id = ? AND business_id = ?',
+          ['Leopards Courier', booked.trackNumber, req.params.id, req.business.id],
+        );
       }
     } catch (err) {
       courierWarning = err.message;
     }
   }
 
-  const deliveredSet = status === 'delivered' ? ', delivered_at = NOW()' : '';
-  const trackingSet = booked ? ', courier_name = ?, tracking_number = ?' : '';
-  // Guard on the status we read above so two admins acting on the same order at the same instant
-  // can't silently overwrite each other — the loser gets a clear conflict instead of a lost update.
-  const [updateResult] = await pool.query(
-    `UPDATE orders SET status = ?${deliveredSet}${trackingSet} WHERE id = ? AND business_id = ? AND status = ?`,
-    [status, ...(booked ? ['Leopards Courier', booked.trackNumber] : []), req.params.id, req.business.id, order.status],
-  );
-  if (updateResult.affectedRows === 0) {
-    return res.status(409).json({ error: 'This order was updated by someone else. Please refresh and try again.' });
-  }
   res.json({
     message: 'Order status updated',
     ...(booked ? { courier_name: 'Leopards Courier', tracking_number: booked.trackNumber } : {}),
@@ -471,7 +543,14 @@ export async function applySyncedOrderStatus(businessId, orderId, currentStatus,
   if (!allowed.includes(newStatus)) return false;
 
   const deliveredSet = newStatus === 'delivered' ? ', delivered_at = NOW()' : '';
-  await pool.query(`UPDATE orders SET status = ?${deliveredSet} WHERE id = ? AND business_id = ?`, [newStatus, orderId, businessId]);
+  // Guarded on currentStatus, same as updateOrderStatus's admin-driven path — without it, this
+  // background sync could silently overwrite a status an admin already changed in the meantime
+  // (e.g. flip a just-cancelled order back to "delivered" and email the customer accordingly).
+  const [result] = await pool.query(
+    `UPDATE orders SET status = ?${deliveredSet} WHERE id = ? AND business_id = ? AND status = ?`,
+    [newStatus, orderId, businessId, currentStatus]
+  );
+  if (result.affectedRows === 0) return false;
   await sendStatusChangeEmail(businessId, orderId, newStatus);
   return true;
 }

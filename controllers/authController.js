@@ -296,13 +296,31 @@ export async function disableTwoFactor(req, res) {
 }
 
 export async function updateProfile(req, res) {
-  const { name, email } = req.body;
+  const { name, email, currentPassword } = req.body;
   if (!name?.trim() || !email?.trim()) {
     return res.status(400).json({ error: 'name and email are required' });
   }
 
+  const [existingRows] = await pool.query('SELECT email, password_hash FROM users WHERE id = ?', [req.user.id]);
+  const emailChanged = email.trim() !== existingRows[0].email;
+
+  // Changing the email is enough on its own to hijack the account via forgotPassword, so it
+  // requires proving the current password — unlike the name, which is low-stakes on its own.
+  if (emailChanged) {
+    if (!currentPassword) return res.status(400).json({ error: 'currentPassword is required to change your email' });
+    if (!(await bcrypt.compare(currentPassword, existingRows[0].password_hash))) {
+      return res.status(401).json({ error: 'Current password is incorrect' });
+    }
+  }
+
+  const verificationToken = emailChanged ? crypto.randomBytes(32).toString('hex') : null;
   try {
-    await pool.query('UPDATE users SET name = ?, email = ? WHERE id = ?', [name.trim(), email.trim(), req.user.id]);
+    await pool.query(
+      emailChanged
+        ? 'UPDATE users SET name = ?, email = ?, email_verified = 0, verification_token = ? WHERE id = ?'
+        : 'UPDATE users SET name = ? WHERE id = ?',
+      emailChanged ? [name.trim(), email.trim(), verificationToken, req.user.id] : [name.trim(), req.user.id]
+    );
   } catch (err) {
     if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'Email already in use' });
     throw err;
@@ -314,6 +332,12 @@ export async function updateProfile(req, res) {
   // session rather than minting a new one, since nothing here needs to be revoked.
   issueSession(res, user, req.business.id, req.sessionId);
   res.json({ user });
+
+  if (emailChanged) {
+    buildVerificationEmail(name.trim(), verificationToken, req.business.id).then(({ subject, html }) => {
+      sendMail({ to: email.trim(), subject, html });
+    }).catch(() => {});
+  }
 }
 
 export async function changePassword(req, res) {

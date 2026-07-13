@@ -47,6 +47,13 @@ function isAllowedOrigin(origin) {
 }
 
 const app = express();
+// Railway (see CORS comment below) puts exactly one reverse proxy in front of this process, so
+// req.ip and the rate limiters below (which key on it) need to read the client's real IP from
+// the one X-Forwarded-For hop that proxy sets, not fall back to the proxy's own IP for every
+// request — which is what happens with trust proxy left at its default of disabled, and would
+// collapse every real client behind it into a single shared rate-limit bucket. `1` trusts only
+// that one hop, unlike `true`, which would trust the whole header and let a client spoof it.
+app.set('trust proxy', 1);
 app.use(helmet({
   // Uploaded product images are loaded cross-origin (<img>) from store subdomains, and this
   // server has no HTML views of its own for CSP to protect.

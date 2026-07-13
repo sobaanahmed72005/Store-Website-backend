@@ -297,7 +297,11 @@ export async function updateProduct(req, res) {
 
   const newStock = Number(stock ?? 0);
   if (previousStock <= 0 && newStock > 0) {
-    notifyBackInStock(req.business.id, req.params.id);
+    // Best-effort wishlist notification — must not let a DB/mail hiccup here become an
+    // unhandled rejection, which (Node >=15) crashes the whole process, not just this request.
+    notifyBackInStock(req.business.id, req.params.id).catch((err) => {
+      console.error('notifyBackInStock failed:', err.message);
+    });
   }
 }
 
