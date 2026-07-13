@@ -4,7 +4,7 @@ const ALLOWED_KEYS = ['about-us', 'footer-brand', 'site-settings', 'policies', '
 
 const DEFAULTS = {
   'site-settings': {
-    siteName: 'YourITstore',
+    siteName: 'My Store',
     logo: null,
   },
   'currency-settings': {
@@ -37,30 +37,30 @@ const DEFAULTS = {
   },
   'about-us': {
     paragraphs: [
-      "YourITstore is one of Pakistan's leading online computer stores, offering laptops, desktops, gaming consoles, components, and accessories at the best prices in Pakistan. Since our founding, we have been committed to bringing genuine, top-quality technology products to customers across the country.",
-      'From Dell, Lenovo, HP, and Acer laptops to graphic cards, monitors, and peripherals, our catalog is built for students, professionals, and gamers alike. We work directly with authorized distributors to make sure every product that reaches you comes with full manufacturer warranty and genuine support.',
+      "Welcome to our store — one of the leading online destinations for computers, laptops, and accessories. Since our founding, we have been committed to bringing genuine, top-quality technology products to our customers.",
+      'From leading laptop brands to graphic cards, monitors, and peripherals, our catalog is built for students, professionals, and gamers alike. We work directly with authorized distributors to make sure every product that reaches you comes with full manufacturer warranty and genuine support.',
     ],
     highlights: [
       { title: '100% Genuine Products', description: 'Every product we sell is sourced from authorized distributors with full manufacturer warranty.' },
-      { title: 'One Official Store', description: 'YourITstore operates only one official store. Beware of fake stores claiming our name.' },
-      { title: 'Nationwide Delivery', description: 'We ship laptops, components, and accessories to every major city across Pakistan.' },
+      { title: 'One Official Store', description: 'We operate only one official store. Beware of fake stores claiming our name.' },
+      { title: 'Nationwide Delivery', description: 'We ship laptops, components, and accessories to every major city.' },
       { title: 'After-Sales Support', description: 'Our team handles warranty claims, repairs, and exchanges directly so you are never left stranded.' },
     ],
-    storeAddress: 'FL 4/20, Main Rashid Minhas Road, Gulshan-e-Iqbal Block-5, Karachi, Pakistan.',
-    storeTimings: 'Mon–Thu and Sat: 11 AM – 8 PM | Fri: 11 AM – 1 PM, 2:30 PM – 8 PM | Sun: Closed',
+    storeAddress: 'Add your store address in Admin → About Us Page.',
+    storeTimings: 'Add your store timings in Admin → About Us Page.',
   },
   'footer-brand': {
-    description: 'Welcome to YourITstore. Online computer store in Pakistan. Buy Dell, Lenovo, HP, Acer laptops at the best prices in Pakistan.',
-    address: 'FL 4/20, Main Rashid Minhas Road, Gulshan-e-Iqbal Block-5, Karachi, Pakistan.',
-    phone: '+922134817355 | +922134155030 | +922134960583',
-    email: 'info@youritstore.com',
-    hours: 'Mon–Thu and Sat: 11 AM – 8 PM | Fri: 11 AM – 1 PM, 2:30 PM – 8 PM | Sun: Closed',
+    description: 'Welcome to our store. Update this description in Admin → Footer / Store Info.',
+    address: 'Add your store address in Admin → Footer / Store Info.',
+    phone: 'Add your phone number(s) in Admin → Footer / Store Info.',
+    email: '',
+    hours: 'Add your store timings in Admin → Footer / Store Info.',
     social: {
-      facebook: 'https://www.facebook.com/czoneonline/',
+      facebook: '',
       twitter: '',
       instagram: '',
       youtube: '',
-      whatsapp: 'https://whatsapp.com/channel/0029VaCWq4v90x2qT9L1kf13',
+      whatsapp: '',
       tiktok: '',
     },
     columns: [
@@ -91,7 +91,7 @@ const DEFAULTS = {
       },
     ],
     marqueeMessages: [
-      'Store Timings: Mon–Thu and Sat: 11 AM – 8 PM | Fri: 11 AM – 1 PM, 2:30 PM – 8 PM | Sun: Closed',
+      'Add your announcement messages in Admin → Footer / Store Info.',
       'Prices may vary due to currency changes.',
       'We operate only one official store. Beware of fake stores claiming our name.',
     ],
@@ -197,6 +197,13 @@ const DEFAULTS = {
     },
   },
 };
+
+export async function getSiteName(businessId) {
+  const [rows] = await pool.query('SELECT value FROM site_content WHERE business_id = ? AND content_key = ?', [businessId, 'site-settings']);
+  if (rows.length === 0) return DEFAULTS['site-settings'].siteName;
+  const value = typeof rows[0].value === 'string' ? JSON.parse(rows[0].value) : rows[0].value;
+  return value.siteName || DEFAULTS['site-settings'].siteName;
+}
 
 export async function getContent(req, res) {
   const { key } = req.params;

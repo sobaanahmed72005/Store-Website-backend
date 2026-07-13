@@ -3,6 +3,7 @@ import { sendMail } from '../utils/mailer.js';
 import { wrapEmail, emailParagraph, emailDivider } from '../utils/emailTemplate.js';
 import { generateUnsubscribeToken } from '../utils/unsubscribeToken.js';
 import { buildStoreUrl } from '../utils/storeUrl.js';
+import { getSiteName } from './contentController.js';
 import { BACKEND_URL } from '../config/env.js';
 
 function buildUnsubscribeUrl(business, email) {
@@ -10,7 +11,7 @@ function buildUnsubscribeUrl(business, email) {
   return `${buildStoreUrl(business.slug)}/unsubscribe?email=${encodeURIComponent(email)}&token=${token}`;
 }
 
-function buildPromoHtml({ subject, message, poster_image }, unsubscribeUrl) {
+function buildPromoHtml({ subject, message, poster_image }, unsubscribeUrl, storeName) {
   const backendUrl = BACKEND_URL;
   const imageUrl = poster_image
     ? (poster_image.startsWith('http') ? poster_image : `${backendUrl}${poster_image}`)
@@ -39,7 +40,7 @@ function buildPromoHtml({ subject, message, poster_image }, unsubscribeUrl) {
       "<span style='color:#888;font-size:12px;'>You are receiving this email because you subscribed to updates from our store.</span>",
     );
 
-  return wrapEmail(body, { preheader: message.replace(/\n/g, ' ').slice(0, 100), unsubscribeUrl });
+  return wrapEmail(body, { storeName, preheader: message.replace(/\n/g, ' ').slice(0, 100), unsubscribeUrl });
 }
 
 export async function adminList(req, res) {
@@ -120,10 +121,12 @@ export async function adminSend(req, res) {
 
   res.json({ message: `Sending to ${count} subscriber${count === 1 ? '' : 's'}`, recipients: count });
 
+  const storeName = await getSiteName(req.business.id);
   for (const sub of subscribers) {
     const html = buildPromoHtml(
       { subject: promo.subject, message: promo.message, poster_image: promo.poster_image },
-      buildUnsubscribeUrl(req.business, sub.email)
+      buildUnsubscribeUrl(req.business, sub.email),
+      storeName
     );
     sendMail({ to: sub.email, subject: promo.subject, html }).catch(() => {});
   }

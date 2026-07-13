@@ -4,6 +4,7 @@ import { wrapEmail, emailGreeting, emailParagraph, emailButton, emailDivider } f
 import { getEmailTemplate, applyPlaceholders } from '../utils/emailLoader.js';
 import { generateUnsubscribeToken, verifyUnsubscribeToken } from '../utils/unsubscribeToken.js';
 import { buildStoreUrl } from '../utils/storeUrl.js';
+import { getSiteName } from './contentController.js';
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -13,7 +14,10 @@ function buildUnsubscribeUrl(business, email) {
 }
 
 async function buildWelcomeEmail(business, email) {
-  const tpl = await getEmailTemplate(business.id, 'newsletter_welcome').catch(() => null);
+  const [tpl, storeName] = await Promise.all([
+    getEmailTemplate(business.id, 'newsletter_welcome').catch(() => null),
+    getSiteName(business.id),
+  ]);
   const subject = tpl?.subject || "You're subscribed! 🎉";
   const message = tpl?.message
     ? applyPlaceholders(tpl.message, {})
@@ -25,7 +29,7 @@ async function buildWelcomeEmail(business, email) {
     emailButton('Start Shopping', storeUrl) +
     emailDivider() +
     emailParagraph("<span style='color:#888;font-size:13px;'>You're receiving this because you subscribed to our newsletter.</span>");
-  return { subject, html: wrapEmail(body, { preheader: 'Welcome to the list!', unsubscribeUrl: buildUnsubscribeUrl(business, email) }) };
+  return { subject, html: wrapEmail(body, { storeName, preheader: 'Welcome to the list!', unsubscribeUrl: buildUnsubscribeUrl(business, email) }) };
 }
 
 export async function subscribe(req, res) {
@@ -129,8 +133,9 @@ export async function adminSend(req, res) {
   const body = paragraphs + emailDivider() +
     emailParagraph("<span style='color:#888;font-size:13px;'>You are receiving this because you subscribed to our newsletter.</span>");
 
+  const storeName = await getSiteName(req.business.id);
   for (const row of rows) {
-    const html = wrapEmail(body, { preheader: subject.trim(), unsubscribeUrl: buildUnsubscribeUrl(req.business, row.email) });
+    const html = wrapEmail(body, { storeName, preheader: subject.trim(), unsubscribeUrl: buildUnsubscribeUrl(req.business, row.email) });
     sendMail({ to: row.email, subject: subject.trim(), html });
   }
   res.json({ sent: rows.length });
