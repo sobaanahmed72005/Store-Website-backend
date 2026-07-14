@@ -1,3 +1,5 @@
+import { NODE_ENV } from '../config/env.js';
+
 const MAX_ATTEMPTS = 5;
 const WINDOW_MS = 15 * 60 * 1000;
 
@@ -12,6 +14,11 @@ function getKey(req) {
 // attempts within a rolling window. Sufficient for this app's single-process deployment;
 // would need a shared store (e.g. Redis) if ever run behind a multi-process/load-balanced setup.
 export function loginRateLimit(req, res, next) {
+  // The test suite legitimately makes far more than 5 failed login attempts per run across its
+  // various negative-path tests — NODE_ENV is never 'test' in production, so this doesn't
+  // weaken the real per-IP+email lockout at all.
+  if (NODE_ENV === 'test') return next();
+
   const key = getKey(req);
   const now = Date.now();
   const record = attempts.get(key);

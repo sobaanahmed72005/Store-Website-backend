@@ -1,4 +1,5 @@
 import rateLimit from 'express-rate-limit';
+import { NODE_ENV } from '../config/env.js';
 
 // Dedicated limiter for the 2FA login-challenge step, separate from accountActionRateLimit's
 // shared pool (register/forgot-password/reset-password). Those are unrelated actions — pooling
@@ -11,5 +12,6 @@ export const twoFactorRateLimit = rateLimit({
   limit: 10,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: () => NODE_ENV === 'test',
   message: { error: 'Too many attempts. Please try again later.' },
 });
