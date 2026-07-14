@@ -23,6 +23,33 @@ function effectivePrice(product) {
   return product.is_on_sale && product.discount_price != null ? Number(product.discount_price) : Number(product.price);
 }
 
+function variantEffectivePrice(variant) {
+  return variant.discount_price != null && Number(variant.discount_price) < Number(variant.price)
+    ? Number(variant.discount_price)
+    : Number(variant.price);
+}
+
+// Labels a variant the same way the product detail page's picker would build one, e.g.
+// "256 GB" or "256 GB / Black" for multi-dimension variants — used to snapshot a human-readable
+// order_items.variant_label at the time of purchase (the admin/customer order views read this
+// column directly rather than re-deriving it from product_variant_options after the fact).
+async function labelVariants(variantIds) {
+  if (!variantIds.length) return new Map();
+  const [options] = await pool.query(
+    `SELECT pvo.variant_id, o.value
+     FROM product_variant_options pvo
+     JOIN category_attribute_options o ON o.id = pvo.option_id
+     WHERE pvo.variant_id IN (${variantIds.map(() => '?').join(',')})
+     ORDER BY pvo.variant_id, o.id`,
+    variantIds
+  );
+  const labels = new Map();
+  for (const { variant_id, value } of options) {
+    labels.set(variant_id, [...(labels.get(variant_id) || []), value]);
+  }
+  return new Map([...labels].map(([id, values]) => [id, values.join(' / ')]));
+}
+
 export async function createOrder(req, res) {
   const { shipping_name, shipping_address, shipping_city, phone, email, notes, items, discount_code, payment_method, payment_reference, payment_proof_image } = req.body;
   const user_id = req.user.id;
@@ -73,22 +100,62 @@ export async function createOrder(req, res) {
     return res.status(400).json({ error: 'One or more items in your cart are no longer available' });
   }
 
-  const requestedQtyByProduct = new Map();
-  for (const item of items) {
-    const key = String(item.id);
-    requestedQtyByProduct.set(key, (requestedQtyByProduct.get(key) ?? 0) + Math.trunc(Number(item.quantity)));
+  // Never trust a client-submitted variant price/stock — independently fetch every referenced
+  // variant and confirm it actually belongs to the same business AND the same product id the
+  // client claims (an attacker could otherwise pair a cheap product's id with a pricier variant's
+  // stock, or vice versa).
+  const variantIds = [...new Set(items.filter((i) => i.variantId != null).map((i) => Number(i.variantId)))];
+  const variantById = new Map();
+  if (variantIds.length > 0) {
+    const [variantRows] = await pool.query(
+      `SELECT id, product_id, price, discount_price, stock FROM product_variants WHERE business_id = ? AND id IN (${variantIds.map(() => '?').join(',')})`,
+      [req.business.id, ...variantIds]
+    );
+    for (const v of variantRows) variantById.set(v.id, v);
   }
-  for (const [productIdKey, requestedQty] of requestedQtyByProduct) {
-    const product = productById.get(productIdKey);
-    if (requestedQty > product.stock) {
-      return res.status(400).json({ error: `Only ${product.stock} of "${product.name}" left in stock` });
+  for (const item of items) {
+    if (item.variantId == null) continue;
+    const variant = variantById.get(Number(item.variantId));
+    if (!variant || variant.product_id !== Number(item.id)) {
+      return res.status(400).json({ error: 'One or more items in your cart are no longer available' });
+    }
+  }
+  const variantLabels = await labelVariants(variantIds);
+
+  // Requested quantity is tallied per distinct purchasable thing — a variant line and its parent
+  // product's plain stock are independent, so they're keyed separately even when they share a
+  // product id.
+  const requestedQtyByLine = new Map();
+  for (const item of items) {
+    const key = item.variantId != null ? `v:${item.variantId}` : `p:${item.id}`;
+    requestedQtyByLine.set(key, (requestedQtyByLine.get(key) ?? 0) + Math.trunc(Number(item.quantity)));
+  }
+  for (const [lineKey, requestedQty] of requestedQtyByLine) {
+    if (lineKey.startsWith('v:')) {
+      const variant = variantById.get(Number(lineKey.slice(2)));
+      const product = productById.get(String(variant.product_id));
+      if (requestedQty > variant.stock) {
+        return res.status(400).json({ error: `Only ${variant.stock} of "${product?.name || 'this item'}" left in stock` });
+      }
+    } else {
+      const product = productById.get(lineKey.slice(2));
+      if (requestedQty > product.stock) {
+        return res.status(400).json({ error: `Only ${product.stock} of "${product.name}" left in stock` });
+      }
     }
   }
 
   const orderItems = items.map((item) => {
     const product = productById.get(String(item.id));
     const quantity = Math.trunc(Number(item.quantity));
-    return { product, quantity, price: effectivePrice(product) };
+    const variant = item.variantId != null ? variantById.get(Number(item.variantId)) : null;
+    const price = variant ? variantEffectivePrice(variant) : effectivePrice(product);
+    const comparePrice = variant ? Number(variant.price) : Number(product.price);
+    return {
+      product, variant, quantity, price,
+      isSalePrice: price < comparePrice,
+      variantLabel: variant ? variantLabels.get(variant.id) || null : null,
+    };
   });
   const subtotal = orderItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
@@ -108,15 +175,37 @@ export async function createOrder(req, res) {
     // the same locked read-modify-write, so this can't oversell even under concurrent orders
     // for the same product (unlike the earlier plain SELECT check above, which only exists to
     // fail fast with a friendly message before opening a transaction).
-    for (const [productIdKey, requestedQty] of requestedQtyByProduct) {
-      const [stockResult] = await connection.query(
-        'UPDATE products SET stock = stock - ? WHERE id = ? AND business_id = ? AND stock >= ?',
-        [requestedQty, productIdKey, req.business.id, requestedQty]
-      );
-      if (stockResult.affectedRows === 0) {
-        await connection.rollback();
-        const product = productById.get(productIdKey);
-        return res.status(400).json({ error: `Only a limited quantity of "${product?.name || 'this item'}" is available. Please update your cart.` });
+    for (const [lineKey, requestedQty] of requestedQtyByLine) {
+      if (lineKey.startsWith('v:')) {
+        const variantId = Number(lineKey.slice(2));
+        const variant = variantById.get(variantId);
+        const [variantStockResult] = await connection.query(
+          'UPDATE product_variants SET stock = stock - ? WHERE id = ? AND business_id = ? AND stock >= ?',
+          [requestedQty, variantId, req.business.id, requestedQty]
+        );
+        if (variantStockResult.affectedRows === 0) {
+          await connection.rollback();
+          const product = productById.get(String(variant.product_id));
+          return res.status(400).json({ error: `Only a limited quantity of "${product?.name || 'this item'}" is available. Please update your cart.` });
+        }
+        // products.stock is the SUM of variant stocks (derived on save) — keep it in sync
+        // incrementally rather than leaving it stale until the product is next edited. Always
+        // safe: the base product's stock is >= any single variant's, which the check above just confirmed.
+        await connection.query(
+          'UPDATE products SET stock = stock - ? WHERE id = ? AND business_id = ?',
+          [requestedQty, variant.product_id, req.business.id]
+        );
+      } else {
+        const productId = lineKey.slice(2);
+        const [stockResult] = await connection.query(
+          'UPDATE products SET stock = stock - ? WHERE id = ? AND business_id = ? AND stock >= ?',
+          [requestedQty, productId, req.business.id, requestedQty]
+        );
+        if (stockResult.affectedRows === 0) {
+          await connection.rollback();
+          const product = productById.get(productId);
+          return res.status(400).json({ error: `Only a limited quantity of "${product?.name || 'this item'}" is available. Please update your cart.` });
+        }
       }
     }
 
@@ -153,10 +242,12 @@ export async function createOrder(req, res) {
     const orderId = orderResult.insertId;
 
     for (const item of orderItems) {
-      const isSalePrice = item.price < Number(item.product.price) ? 1 : 0;
       await connection.query(
-        'INSERT INTO order_items (order_id, product_ref, product_name, product_image, quantity, price, is_sale_price) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [orderId, String(item.product.id), item.product.name, item.product.image ?? null, item.quantity, item.price, isSalePrice]
+        'INSERT INTO order_items (order_id, product_ref, variant_id, product_name, variant_label, product_image, quantity, price, is_sale_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+          orderId, String(item.product.id), item.variant?.id ?? null, item.product.name, item.variantLabel,
+          item.product.image ?? null, item.quantity, item.price, item.isSalePrice ? 1 : 0,
+        ]
       );
     }
 

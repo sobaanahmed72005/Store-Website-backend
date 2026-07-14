@@ -9,13 +9,15 @@
     "start": "cross-env NODE_ENV=production node server.js",
     "test": "cross-env NODE_ENV=test DB_NAME=czone_test node --test --test-concurrency=1 test/*.test.js",
     "db:init": "node sql/init.js",
-    "db:migrate": "npm run db:migrate-2fa && npm run db:migrate-updated-at && npm run db:migrate-token-version && npm run db:migrate-discount-guard && npm run db:migrate-sessions && npm run db:migrate-payment-proof",
+    "db:migrate": "npm run db:migrate-2fa && npm run db:migrate-updated-at && npm run db:migrate-token-version && npm run db:migrate-discount-guard && npm run db:migrate-sessions && npm run db:migrate-payment-proof && npm run db:migrate-product-variants && npm run db:migrate-product-spec-overrides",
     "db:migrate-2fa": "node sql/migrate-2fa.js",
     "db:migrate-updated-at": "node sql/migrate-updated-at.js",
     "db:migrate-token-version": "node sql/migrate-token-version.js",
     "db:migrate-discount-guard": "node sql/migrate-discount-guard.js",
     "db:migrate-sessions": "node sql/migrate-sessions.js",
-    "db:migrate-payment-proof": "node sql/migrate-payment-proof.js"
+    "db:migrate-payment-proof": "node sql/migrate-payment-proof.js",
+    "db:migrate-product-variants": "node sql/migrate-product-variants.js",
+    "db:migrate-product-spec-overrides": "node sql/migrate-product-spec-overrides.js"
   },
   "dependencies": {
     "@sentry/node": "^10.65.0",

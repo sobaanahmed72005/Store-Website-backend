@@ -15,22 +15,80 @@ async function attachAttributeOptionIds(rows) {
      WHERE pav.product_id IN (${rows.map(() => '?').join(',')})`,
     rows.map((r) => r.id)
   );
+  const [overrides] = await pool.query(
+    `SELECT product_id, attribute_name, value FROM product_spec_overrides WHERE product_id IN (${rows.map(() => '?').join(',')})`,
+    rows.map((r) => r.id)
+  );
   return rows.map((row) => {
     const rowLinks = links.filter((l) => l.product_id === row.id);
+    const rowOverrides = overrides.filter((o) => o.product_id === row.id);
+    const overrideByKey = new Map(rowOverrides.map((o) => [o.attribute_name.trim().toLowerCase(), o.value]));
     const seenAttributes = new Set();
     const specifications = [];
     for (const l of rowLinks) {
       const key = l.attribute_name.trim().toLowerCase();
       if (seenAttributes.has(key)) continue;
       seenAttributes.add(key);
-      specifications.push({ attribute: l.attribute_name, value: l.value });
+      // An attribute with 2+ selected options has no single correct auto-derived value (it's a
+      // variant dimension) — an explicit admin override always wins over the first-tag default.
+      specifications.push({ attribute: l.attribute_name, value: overrideByKey.get(key) ?? l.value });
     }
     return {
       ...row,
       attribute_option_ids: rowLinks.map((l) => l.option_id),
       specifications,
+      spec_overrides: rowOverrides.map((o) => ({ attribute_name: o.attribute_name, value: o.value })),
     };
   });
+}
+
+// Cheap has_variants flag for grid/listing pages — avoids joining the full variant+option shape
+// (attachVariants below) across every row on a page that never needs anything but the boolean.
+async function attachHasVariants(rows) {
+  if (rows.length === 0) return rows;
+  const [variantRows] = await pool.query(
+    `SELECT DISTINCT product_id FROM product_variants WHERE product_id IN (${rows.map(() => '?').join(',')})`,
+    rows.map((r) => r.id)
+  );
+  const withVariants = new Set(variantRows.map((r) => r.product_id));
+  return rows.map((row) => ({ ...row, has_variants: withVariants.has(row.id) }));
+}
+
+// Full variant detail for a single-product read — each variant labeled with its option values so
+// the PDP can build a picker and match a selection without a second round-trip.
+async function attachVariants(rows) {
+  if (rows.length === 0) return rows;
+  const [variants] = await pool.query(
+    `SELECT id, product_id, price, discount_price, stock FROM product_variants WHERE product_id IN (${rows.map(() => '?').join(',')})`,
+    rows.map((r) => r.id)
+  );
+  if (variants.length === 0) return rows.map((row) => ({ ...row, variants: [] }));
+  const [options] = await pool.query(
+    `SELECT pvo.variant_id, o.value, a.name AS attribute
+     FROM product_variant_options pvo
+     JOIN category_attribute_options o ON o.id = pvo.option_id
+     JOIN category_attributes a ON a.id = o.attribute_id
+     WHERE pvo.variant_id IN (${variants.map(() => '?').join(',')})`,
+    variants.map((v) => v.id)
+  );
+  return rows.map((row) => ({
+    ...row,
+    variants: variants
+      .filter((v) => v.product_id === row.id)
+      .map((v) => ({
+        id: v.id,
+        price: v.price,
+        discount_price: v.discount_price,
+        stock: v.stock,
+        options: options.filter((o) => o.variant_id === v.id).map((o) => ({ attribute: o.attribute, value: o.value })),
+      })),
+  }));
+}
+
+function variantEffectivePrice(variant) {
+  return variant.discount_price != null && Number(variant.discount_price) < Number(variant.price)
+    ? Number(variant.discount_price)
+    : Number(variant.price);
 }
 
 async function attachGalleryImages(rows) {
@@ -63,7 +121,11 @@ async function attachReviewStats(rows) {
 }
 
 async function attachExtras(rows) {
-  return attachReviewStats(await attachGalleryImages(await attachAttributeOptionIds(rows)));
+  return attachHasVariants(await attachReviewStats(await attachGalleryImages(await attachAttributeOptionIds(rows))));
+}
+
+async function attachSingleProductExtras(rows) {
+  return attachVariants(await attachExtras(rows));
 }
 
 async function setProductAttributeOptions(connection, productId, optionIds) {
@@ -103,6 +165,50 @@ async function setProductImages(connection, productId, images) {
   if (!images?.length) return;
   const values = images.map((image, index) => [productId, image, index]);
   await connection.query('INSERT INTO product_images (product_id, image, sort_order) VALUES ?', [values]);
+}
+
+function validateVariants(variants) {
+  if (!variants?.length) return null;
+  for (const v of variants) {
+    const err = validatePriceAndStock(v.price, v.stock);
+    if (err) return err;
+    if (!v.option_ids?.length) return 'Each variant must have at least one selected option';
+    if (v.discount_price != null) {
+      const discount = Number(v.discount_price);
+      if (!Number.isFinite(discount) || discount <= 0) {
+        return 'Each variant sale price must be a positive number';
+      }
+      if (discount >= Number(v.price)) {
+        return 'Each variant sale price must be less than its regular price';
+      }
+    }
+  }
+  return null;
+}
+
+// Delete-then-reinsert, mirroring setProductAttributeOptions/setProductImages exactly.
+async function setProductVariants(connection, productId, businessId, variants) {
+  await connection.query('DELETE FROM product_variants WHERE product_id = ?', [productId]);
+  if (!variants?.length) return;
+  for (const v of variants) {
+    const [result] = await connection.query(
+      'INSERT INTO product_variants (business_id, product_id, price, discount_price, stock) VALUES (?, ?, ?, ?, ?)',
+      [businessId, productId, v.price, v.discount_price ?? null, v.stock ?? 0]
+    );
+    const values = v.option_ids.map((optionId) => [result.insertId, optionId]);
+    await connection.query('INSERT INTO product_variant_options (variant_id, option_id) VALUES ?', [values]);
+  }
+}
+
+// specOverrides is a { [attributeName]: value } map from the admin form — only attributes the
+// admin actually typed a value for get a row; a blank/missing entry falls back to the default
+// first-tag specification value in attachAttributeOptionIds above.
+async function setProductSpecOverrides(connection, productId, specOverrides) {
+  await connection.query('DELETE FROM product_spec_overrides WHERE product_id = ?', [productId]);
+  const entries = Object.entries(specOverrides || {}).filter(([, value]) => value != null && String(value).trim() !== '');
+  if (entries.length === 0) return;
+  const values = entries.map(([name, value]) => [productId, name, String(value).trim()]);
+  await connection.query('INSERT INTO product_spec_overrides (product_id, attribute_name, value) VALUES ?', [values]);
 }
 
 // A parent category page should show products from that category AND all of its subcategories
@@ -170,7 +276,7 @@ export async function getProductById(req, res) {
     [req.business.id, req.params.id]
   );
   if (rows.length === 0) return res.status(404).json({ error: 'Product not found' });
-  const [withExtras] = await attachExtras(rows);
+  const [withExtras] = await attachSingleProductExtras(rows);
   res.json(withExtras);
 }
 
@@ -180,23 +286,32 @@ export async function getProductBySlug(req, res) {
     [req.business.id, req.params.slug]
   );
   if (rows.length === 0) return res.status(404).json({ error: 'Product not found' });
-  const [withExtras] = await attachExtras(rows);
+  const [withExtras] = await attachSingleProductExtras(rows);
   res.json(withExtras);
 }
 
 export async function createProduct(req, res) {
   const {
     category_id, name, slug, brand, description, price, discount_price, stock, image,
-    is_featured, is_new_arrival, is_on_sale, attribute_option_ids, images,
+    is_featured, is_new_arrival, is_on_sale, attribute_option_ids, images, variants, spec_overrides,
   } = req.body;
   if (!name || !slug || price == null) {
     return res.status(400).json({ error: 'name, slug and price are required' });
   }
 
-  const priceStockError = validatePriceAndStock(price, stock);
+  const variantError = validateVariants(variants);
+  if (variantError) return res.status(400).json({ error: variantError });
+
+  // Once a product has variants, the base row's price/stock are derived, not admin-entered:
+  // price is the cheapest effective variant price (a truthful "starting from" figure for grid/
+  // listing pages), stock is the sum across variants.
+  const effectivePrice = variants?.length ? Math.min(...variants.map(variantEffectivePrice)) : price;
+  const effectiveStock = variants?.length ? variants.reduce((sum, v) => sum + Number(v.stock || 0), 0) : stock;
+
+  const priceStockError = validatePriceAndStock(effectivePrice, effectiveStock);
   if (priceStockError) return res.status(400).json({ error: priceStockError });
 
-  const saleError = validateSalePrice(is_on_sale, discount_price, price);
+  const saleError = validateSalePrice(is_on_sale, discount_price, effectivePrice);
   if (saleError) return res.status(400).json({ error: saleError });
 
   if (category_id) {
@@ -211,13 +326,15 @@ export async function createProduct(req, res) {
       `INSERT INTO products (business_id, category_id, name, slug, brand, description, price, discount_price, stock, image, is_featured, is_new_arrival, is_on_sale)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        req.business.id, category_id || null, name, slug, brand ?? null, description ?? null, price,
-        discount_price ?? null, stock ?? 0, image ?? null,
+        req.business.id, category_id || null, name, slug, brand ?? null, description ?? null, effectivePrice,
+        discount_price ?? null, effectiveStock ?? 0, image ?? null,
         Number(Boolean(is_featured)), Number(Boolean(is_new_arrival)), Number(Boolean(is_on_sale)),
       ]
     );
     await setProductAttributeOptions(connection, result.insertId, attribute_option_ids);
     await setProductImages(connection, result.insertId, images);
+    await setProductVariants(connection, result.insertId, req.business.id, variants);
+    await setProductSpecOverrides(connection, result.insertId, spec_overrides);
     await connection.commit();
     res.status(201).json({ id: result.insertId });
     logAudit({ req, action: 'product.create', entityType: 'product', entityId: result.insertId, details: { name, price, stock: stock ?? 0 } });
@@ -251,22 +368,28 @@ async function notifyBackInStock(businessId, productId) {
 export async function updateProduct(req, res) {
   const {
     category_id, name, slug, brand, description, price, discount_price, stock, image,
-    is_featured, is_new_arrival, is_on_sale, attribute_option_ids, images,
+    is_featured, is_new_arrival, is_on_sale, attribute_option_ids, images, variants, spec_overrides,
   } = req.body;
 
   if (!name || !slug || price == null) {
     return res.status(400).json({ error: 'name, slug and price are required' });
   }
 
+  const variantError = validateVariants(variants);
+  if (variantError) return res.status(400).json({ error: variantError });
+
   const [existingRows] = await pool.query('SELECT price, stock FROM products WHERE id = ? AND business_id = ?', [req.params.id, req.business.id]);
   if (existingRows.length === 0) return res.status(404).json({ error: 'Product not found' });
   const previousStock = existingRows[0].stock;
   const previousPrice = existingRows[0].price;
 
-  const priceStockError = validatePriceAndStock(price, stock);
+  const effectivePrice = variants?.length ? Math.min(...variants.map(variantEffectivePrice)) : price;
+  const effectiveStock = variants?.length ? variants.reduce((sum, v) => sum + Number(v.stock || 0), 0) : stock;
+
+  const priceStockError = validatePriceAndStock(effectivePrice, effectiveStock);
   if (priceStockError) return res.status(400).json({ error: priceStockError });
 
-  const saleError = validateSalePrice(is_on_sale, discount_price, price);
+  const saleError = validateSalePrice(is_on_sale, discount_price, effectivePrice);
   if (saleError) return res.status(400).json({ error: saleError });
 
   if (category_id) {
@@ -281,8 +404,8 @@ export async function updateProduct(req, res) {
       `UPDATE products SET category_id = ?, name = ?, slug = ?, brand = ?, description = ?, price = ?,
        discount_price = ?, stock = ?, image = ?, is_featured = ?, is_new_arrival = ?, is_on_sale = ? WHERE id = ? AND business_id = ?`,
       [
-        category_id || null, name, slug, brand ?? null, description ?? null, price,
-        discount_price ?? null, stock ?? 0, image ?? null,
+        category_id || null, name, slug, brand ?? null, description ?? null, effectivePrice,
+        discount_price ?? null, effectiveStock ?? 0, image ?? null,
         Number(Boolean(is_featured)), Number(Boolean(is_new_arrival)), Number(Boolean(is_on_sale)),
         req.params.id, req.business.id,
       ]
@@ -293,11 +416,13 @@ export async function updateProduct(req, res) {
     }
     await setProductAttributeOptions(connection, req.params.id, attribute_option_ids);
     await setProductImages(connection, req.params.id, images);
+    await setProductVariants(connection, req.params.id, req.business.id, variants);
+    await setProductSpecOverrides(connection, req.params.id, spec_overrides);
     await connection.commit();
     res.json({ message: 'Product updated' });
     logAudit({
       req, action: 'product.update', entityType: 'product', entityId: req.params.id,
-      details: { name, price: { from: previousPrice, to: price }, stock: { from: previousStock, to: stock ?? 0 } },
+      details: { name, price: { from: previousPrice, to: effectivePrice }, stock: { from: previousStock, to: effectiveStock ?? 0 } },
     });
   } catch (err) {
     await connection.rollback();
@@ -307,7 +432,7 @@ export async function updateProduct(req, res) {
     connection.release();
   }
 
-  const newStock = Number(stock ?? 0);
+  const newStock = Number(effectiveStock ?? 0);
   if (previousStock <= 0 && newStock > 0) {
     // Best-effort wishlist notification — must not let a DB/mail hiccup here become an
     // unhandled rejection, which (Node >=15) crashes the whole process, not just this request.
