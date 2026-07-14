@@ -1,5 +1,8 @@
 import mysql from 'mysql2/promise';
 import { DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME } from '../config/env.js';
+import { ensureMigrationsTable, hasRun, recordMigration } from './migrationRunner.js';
+
+const MIGRATION_NAME = 'add-sessions-table';
 
 async function run() {
   const connection = await mysql.createConnection({
@@ -9,6 +12,13 @@ async function run() {
     password: DB_PASSWORD,
     database: DB_NAME,
   });
+
+  await ensureMigrationsTable(connection);
+  if (await hasRun(connection, MIGRATION_NAME)) {
+    console.log(`${MIGRATION_NAME} already applied, skipping.`);
+    await connection.end();
+    return;
+  }
 
   const [tables] = await connection.query(
     "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'sessions'",
@@ -29,6 +39,7 @@ async function run() {
   } else {
     console.log('sessions table already exists, skipping.');
   }
+  await recordMigration(connection, MIGRATION_NAME);
 
   await connection.end();
   console.log('sessions migration complete.');

@@ -328,3 +328,13 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
 );
+
+-- Tracks which sql/migrate-*.js scripts have been applied to this database, so `npm run
+-- db:migrate` can run all of them idempotently in one command instead of a developer needing to
+-- know which ones a given environment still needs. Not tied to any business — this describes the
+-- schema itself, not tenant data.
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(255) NOT NULL UNIQUE,
+  applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

@@ -4,9 +4,23 @@ import { fileURLToPath } from 'url';
 import mysql from 'mysql2/promise';
 import bcrypt from 'bcryptjs';
 import { DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME, ADMIN_NAME, ADMIN_EMAIL, ADMIN_PASSWORD } from '../config/env.js';
+import { recordMigration } from './migrationRunner.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dbName = DB_NAME;
+
+// schema.sql already includes every change the sql/migrate-*.js scripts make (they only exist
+// to bring an *older* database up to date incrementally) — so a fresh install needs all of them
+// marked as already applied, or `npm run db:migrate` would try to re-apply changes that are
+// already baked into the schema it just created and fail on "column already exists".
+const ALL_MIGRATIONS = [
+  'add-2fa-columns',
+  'add-updated-at-columns',
+  'add-token-version-column',
+  'add-discount-guard-constraint',
+  'add-sessions-table',
+  'add-payment-proof-columns',
+];
 
 async function run() {
   const connection = await mysql.createConnection({
@@ -28,6 +42,11 @@ async function run() {
     .replace(/^\s*CREATE DATABASE[^;]*;\s*USE\s+\S+;\s*/i, '');
   await connection.query(schemaSql);
   console.log(`Schema applied to database "${dbName}".`);
+
+  for (const name of ALL_MIGRATIONS) {
+    await recordMigration(connection, name);
+  }
+  console.log('Marked all migrations as already applied (schema.sql already includes them).');
 
   const [businessRows] = await connection.query('SELECT id FROM businesses WHERE slug = ?', ['main']);
   let businessId = businessRows[0]?.id;

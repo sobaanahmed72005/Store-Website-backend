@@ -1,5 +1,8 @@
 import mysql from 'mysql2/promise';
 import { DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME } from '../config/env.js';
+import { ensureMigrationsTable, hasRun, recordMigration } from './migrationRunner.js';
+
+const MIGRATION_NAME = 'add-token-version-column';
 
 const COLUMNS = [
   { name: 'token_version', ddl: 'INT NOT NULL DEFAULT 0' },
@@ -31,7 +34,15 @@ async function run() {
     database: DB_NAME,
   });
 
+  await ensureMigrationsTable(connection);
+  if (await hasRun(connection, MIGRATION_NAME)) {
+    console.log(`${MIGRATION_NAME} already applied, skipping.`);
+    await connection.end();
+    return;
+  }
+
   await addMissingColumns(connection, 'users');
+  await recordMigration(connection, MIGRATION_NAME);
 
   await connection.end();
   console.log('token_version migration complete.');

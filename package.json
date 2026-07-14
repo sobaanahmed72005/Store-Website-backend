@@ -8,6 +8,7 @@
     "dev": "cross-env NODE_ENV=development node --watch server.js",
     "start": "cross-env NODE_ENV=production node server.js",
     "db:init": "node sql/init.js",
+    "db:migrate": "npm run db:migrate-2fa && npm run db:migrate-updated-at && npm run db:migrate-token-version && npm run db:migrate-discount-guard && npm run db:migrate-sessions && npm run db:migrate-payment-proof",
     "db:migrate-2fa": "node sql/migrate-2fa.js",
     "db:migrate-updated-at": "node sql/migrate-updated-at.js",
     "db:migrate-token-version": "node sql/migrate-token-version.js",

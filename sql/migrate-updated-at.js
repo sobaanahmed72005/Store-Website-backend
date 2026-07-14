@@ -1,5 +1,8 @@
 import mysql from 'mysql2/promise';
 import { DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME } from '../config/env.js';
+import { ensureMigrationsTable, hasRun, recordMigration } from './migrationRunner.js';
+
+const MIGRATION_NAME = 'add-updated-at-columns';
 
 const COLUMN = { name: 'updated_at', ddl: 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP' };
 
@@ -25,8 +28,16 @@ async function run() {
     database: DB_NAME,
   });
 
+  await ensureMigrationsTable(connection);
+  if (await hasRun(connection, MIGRATION_NAME)) {
+    console.log(`${MIGRATION_NAME} already applied, skipping.`);
+    await connection.end();
+    return;
+  }
+
   await addMissingColumn(connection, 'products');
   await addMissingColumn(connection, 'categories');
+  await recordMigration(connection, MIGRATION_NAME);
 
   await connection.end();
   console.log('updated_at migration complete.');
