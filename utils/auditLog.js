@@ -1,23 +1,18 @@
 import pool from '../config/db.js';
 import { logger } from './logger.js';
-
-const PAGE_SIZE = 50;
+import { parsePagination, buildPaginatedResponse } from './pagination.js';
 
 export async function listAuditLogs(req, res) {
-  const page = Math.max(1, Number(req.query.page) || 1);
-  const offset = (page - 1) * PAGE_SIZE;
+  const { page, limit, offset } = parsePagination(req, 50);
 
   const [rows] = await pool.query(
     'SELECT * FROM audit_logs WHERE business_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?',
-    [req.business.id, PAGE_SIZE, offset]
+    [req.business.id, limit, offset]
   );
   const [[{ total }]] = await pool.query('SELECT COUNT(*) AS total FROM audit_logs WHERE business_id = ?', [req.business.id]);
 
-  res.json({
-    entries: rows.map((row) => ({ ...row, details: row.details ? JSON.parse(row.details) : null })),
-    page,
-    totalPages: Math.max(1, Math.ceil(total / PAGE_SIZE)),
-  });
+  const entries = rows.map((row) => ({ ...row, details: row.details ? JSON.parse(row.details) : null }));
+  res.json(buildPaginatedResponse('entries', entries, total, page, limit));
 }
 
 // Never let a logging failure break the admin action it's recording.

@@ -1,4 +1,5 @@
 import pool from '../config/db.js';
+import { parsePagination, buildPaginatedResponse } from '../utils/pagination.js';
 
 async function hasPurchased(businessId, userId, productId) {
   const [rows] = await pool.query(
@@ -28,16 +29,23 @@ export async function getReviewsForProduct(req, res) {
   const { product_id } = req.query;
   if (!product_id) return res.status(400).json({ error: 'product_id is required' });
 
+  // average/total are computed over every approved review, independent of the LIMIT/OFFSET
+  // below — the rating summary shouldn't change depending on which page of reviews is showing.
+  const { page, limit, offset } = parsePagination(req, 10);
+  const [[{ total, average }]] = await pool.query(
+    `SELECT COUNT(*) AS total, COALESCE(AVG(rating), 0) AS average
+     FROM product_reviews WHERE business_id = ? AND product_id = ? AND status = 'approved'`,
+    [req.business.id, product_id],
+  );
   const [rows] = await pool.query(
     `SELECT id, author_name, rating, comment, created_at
      FROM product_reviews
      WHERE business_id = ? AND product_id = ? AND status = 'approved'
-     ORDER BY created_at DESC`,
-    [req.business.id, product_id],
+     ORDER BY created_at DESC
+     LIMIT ? OFFSET ?`,
+    [req.business.id, product_id, limit, offset],
   );
-  const count   = rows.length;
-  const average = count > 0 ? rows.reduce((sum, r) => sum + r.rating, 0) / count : 0;
-  res.json({ reviews: rows, average, count });
+  res.json({ ...buildPaginatedResponse('reviews', rows, total, page, limit), average: Number(average) });
 }
 
 export async function createReview(req, res) {
@@ -101,21 +109,27 @@ export async function deleteOwnReview(req, res) {
 
 export async function adminListReviews(req, res) {
   const { status } = req.query; // 'pending' | 'approved' | undefined (all)
+  const { page, limit, offset } = parsePagination(req, 50);
   const where = status && ['pending', 'approved'].includes(status)
     ? 'AND r.status = ?'
     : '';
   const params = [req.business.id, ...(where ? [status] : [])];
 
+  const [[{ total }]] = await pool.query(
+    `SELECT COUNT(*) AS total FROM product_reviews r WHERE r.business_id = ? ${where}`,
+    params
+  );
   const [rows] = await pool.query(
     `SELECT r.id, r.author_name, r.rating, r.comment, r.status, r.created_at,
             p.id AS product_id, p.name AS product_name
      FROM product_reviews r
      JOIN products p ON p.id = r.product_id
      WHERE r.business_id = ? ${where}
-     ORDER BY FIELD(r.status,'pending','approved'), r.created_at DESC`,
-    params,
+     ORDER BY FIELD(r.status,'pending','approved'), r.created_at DESC
+     LIMIT ? OFFSET ?`,
+    [...params, limit, offset],
   );
-  res.json(rows);
+  res.json(buildPaginatedResponse('reviews', rows, total, page, limit));
 }
 
 export async function adminApproveReview(req, res) {

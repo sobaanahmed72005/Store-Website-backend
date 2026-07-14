@@ -13,6 +13,7 @@ import { handleImageUpload } from '../utils/uploadHandler.js';
 import { paymentProofsDir, GENERATED_FILENAME_PATTERN } from '../middleware/upload.js';
 import { FRONTEND_URL } from '../config/env.js';
 import { logger } from '../utils/logger.js';
+import { parsePagination, buildPaginatedResponse } from '../utils/pagination.js';
 
 export const uploadPaymentProof = handleImageUpload;
 
@@ -278,6 +279,8 @@ const DUPLICATE_PROOF_IMAGE_SUBQUERY = `
 `;
 
 export async function getAllOrders(req, res) {
+  const { page, limit, offset } = parsePagination(req, 50);
+  const [[{ total }]] = await pool.query('SELECT COUNT(*) AS total FROM orders WHERE business_id = ?', [req.business.id]);
   const [orders] = await pool.query(
     `SELECT o.*, u.name AS customer_name, u.email AS customer_email,
             (SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.id) AS item_count,
@@ -287,10 +290,11 @@ export async function getAllOrders(req, res) {
                  THEN 1 ELSE 0 END AS is_duplicate_proof_image
      FROM orders o JOIN users u ON o.user_id = u.id
      WHERE o.business_id = ?
-     ORDER BY o.created_at DESC`,
-    [req.business.id]
+     ORDER BY o.created_at DESC
+     LIMIT ? OFFSET ?`,
+    [req.business.id, limit, offset]
   );
-  res.json(orders);
+  res.json(buildPaginatedResponse('orders', orders, total, page, limit));
 }
 
 export async function getNewOrders(req, res) {

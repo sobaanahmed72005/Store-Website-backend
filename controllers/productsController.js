@@ -3,6 +3,7 @@ import { sendMail } from '../utils/mailer.js';
 import { escapeHtml } from '../utils/emailTemplate.js';
 import { logAudit } from '../utils/auditLog.js';
 import { logger } from '../utils/logger.js';
+import { parsePagination, buildPaginatedResponse } from '../utils/pagination.js';
 
 async function attachAttributeOptionIds(rows) {
   if (rows.length === 0) return rows;
@@ -134,12 +135,13 @@ async function resolveCategoryAndDescendantIds(businessId, slug) {
 
 export async function getProducts(req, res) {
   const { category, search, featured, new_arrival, on_sale } = req.query;
+  const { page, limit, offset } = parsePagination(req, 24);
   let sql = 'SELECT p.*, c.name AS category_name, c.slug AS category_slug FROM products p LEFT JOIN categories c ON p.category_id = c.id';
   const params = [req.business.id];
   const where = ['p.business_id = ?'];
   if (category) {
     const categoryIds = await resolveCategoryAndDescendantIds(req.business.id, category);
-    if (categoryIds.length === 0) return res.json([]);
+    if (categoryIds.length === 0) return res.json(buildPaginatedResponse('products', [], 0, page, limit));
     where.push(`p.category_id IN (${categoryIds.map(() => '?').join(',')})`);
     params.push(...categoryIds);
   }
@@ -150,10 +152,16 @@ export async function getProducts(req, res) {
   if (featured) where.push('p.is_featured = 1');
   if (new_arrival) where.push('p.is_new_arrival = 1');
   if (on_sale) where.push('p.is_on_sale = 1');
-  sql += ' WHERE ' + where.join(' AND ');
-  sql += ' ORDER BY p.created_at DESC';
-  const [rows] = await pool.query(sql, params);
-  res.json(await attachExtras(rows));
+  const whereSql = ' WHERE ' + where.join(' AND ');
+
+  const [[{ total }]] = await pool.query(
+    `SELECT COUNT(*) AS total FROM products p LEFT JOIN categories c ON p.category_id = c.id${whereSql}`,
+    params
+  );
+
+  sql += whereSql + ' ORDER BY p.created_at DESC LIMIT ? OFFSET ?';
+  const [rows] = await pool.query(sql, [...params, limit, offset]);
+  res.json(buildPaginatedResponse('products', await attachExtras(rows), total, page, limit));
 }
 
 export async function getProductById(req, res) {
