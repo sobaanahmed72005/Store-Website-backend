@@ -18,6 +18,7 @@
     "db:migrate-payment-proof": "node sql/migrate-payment-proof.js"
   },
   "dependencies": {
+    "@sentry/node": "^10.65.0",
     "bcryptjs": "^3.0.2",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",

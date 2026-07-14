@@ -49,3 +49,7 @@ export const SMTP_PORT = process.env.SMTP_PORT;
 export const SMTP_USER = process.env.SMTP_USER;
 export const SMTP_PASS = process.env.SMTP_PASS;
 export const SMTP_FROM = process.env.SMTP_FROM || 'Store <no-reply@example.com>';
+
+// Error tracking (https://sentry.io). Leave unset to disable — errors are still logged locally
+// either way (see utils/logger.js), this just adds off-process alerting/aggregation on top.
+export const SENTRY_DSN = process.env.SENTRY_DSN || null;

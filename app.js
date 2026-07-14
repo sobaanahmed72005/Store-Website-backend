@@ -7,6 +7,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 import { logger } from './utils/logger.js';
+import { Sentry } from './utils/sentry.js';
 import categoriesRouter from './routes/categories.js';
 import productsRouter from './routes/products.js';
 import authRouter from './routes/auth.js';
@@ -125,6 +126,12 @@ app.use((err, req, res, next) => {
     { err, method: req.method, url: req.originalUrl, business: req.business?.slug, userId: req.user?.id },
     'Request failed'
   );
+  // Only truly unexpected errors go to Sentry — a handful of routes deliberately throw with
+  // err.status set for routine, expected 4xx cases (e.g. a CORS rejection), and those shouldn't
+  // page anyone. Everything without an explicit status (or a genuine 5xx) is a real bug.
+  if (!err.status || err.status >= 500) {
+    Sentry.captureException(err);
+  }
   // mysql2 sets sqlMessage/sqlState on raw DB-driver errors, which can echo back schema/query
   // details — mask those in production. Every other thrown error in this codebase (validation,
   // CORS, integration failures like "Leopards is not enabled") is a hand-written message that's

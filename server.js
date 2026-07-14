@@ -1,17 +1,25 @@
 import app from './app.js';
 import { logger } from './utils/logger.js';
+import { Sentry } from './utils/sentry.js';
 import pool from './config/db.js';
 import { sendReviewReminders } from './utils/reviewReminder.js';
 import { syncLeopardsTracking } from './utils/leopardsSync.js';
 import { pruneOldSessions } from './utils/sessions.js';
 import { PORT } from './config/env.js';
 
-process.on('uncaughtException', (err) => {
+// process.exit() below is synchronous and immediate — without flushing first, Sentry's async
+// network send for this exact event (the one telling us the process is about to die) would very
+// often lose the race and never actually reach Sentry.
+process.on('uncaughtException', async (err) => {
   logger.fatal({ err }, 'Uncaught exception');
+  Sentry.captureException(err);
+  await Sentry.flush(2000).catch(() => {});
   process.exit(1);
 });
-process.on('unhandledRejection', (err) => {
+process.on('unhandledRejection', async (err) => {
   logger.fatal({ err }, 'Unhandled rejection');
+  Sentry.captureException(err);
+  await Sentry.flush(2000).catch(() => {});
   process.exit(1);
 });
 
