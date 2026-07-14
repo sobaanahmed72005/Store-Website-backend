@@ -4,6 +4,9 @@ import { sendMail } from './mailer.js';
 import { wrapEmail, emailGreeting, emailParagraph, emailDivider, escapeHtml } from './emailTemplate.js';
 import { getEmailTemplate, applyPlaceholders } from './emailLoader.js';
 import { getSiteName } from '../controllers/contentController.js';
+import { logger } from './logger.js';
+
+const log = logger.child({ component: 'reviewReminder' });
 
 const GOLD_LIGHT = '#fbf3dc';
 const PRIMARY    = '#102b53';
@@ -99,10 +102,10 @@ export async function sendReviewReminders() {
           [order.id],
         );
       } catch (err) {
-        console.error(`Review reminder failed for order ${order.id}:`, err.message);
+        log.error({ err, orderId: order.id }, 'Review reminder failed for order');
       }
     }
   } catch (err) {
-    console.error('Review reminder job error:', err.message);
+    log.error({ err }, 'Review reminder job error');
   }
 }

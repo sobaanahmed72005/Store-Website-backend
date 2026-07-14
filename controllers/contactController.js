@@ -3,8 +3,7 @@ import { sendMail } from '../utils/mailer.js';
 import { wrapEmail, emailParagraph, emailDivider, escapeHtml } from '../utils/emailTemplate.js';
 import { getSiteName } from './contentController.js';
 import { SMTP_USER } from '../config/env.js';
-
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+import { EMAIL_PATTERN } from '../utils/validation.js';
 
 async function getStoreContactEmail(businessId) {
   const [rows] = await pool.query(

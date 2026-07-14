@@ -2,6 +2,7 @@ import pool from '../config/db.js';
 import { sendMail } from '../utils/mailer.js';
 import { escapeHtml } from '../utils/emailTemplate.js';
 import { logAudit } from '../utils/auditLog.js';
+import { logger } from '../utils/logger.js';
 
 async function attachAttributeOptionIds(rows) {
   if (rows.length === 0) return rows;
@@ -67,7 +68,10 @@ async function attachExtras(rows) {
 async function setProductAttributeOptions(connection, productId, optionIds) {
   await connection.query('DELETE FROM product_attribute_values WHERE product_id = ?', [productId]);
   if (!optionIds?.length) return;
-  const values = optionIds.map((optionId) => [productId, optionId]);
+  // Deduped defensively — a repeated option_id here would hit product_attribute_values' unique
+  // (product_id, option_id) constraint on the bulk insert below, and the callers' catch blocks
+  // would misreport it as a duplicate product name/slug, which isn't what actually happened.
+  const values = [...new Set(optionIds)].map((optionId) => [productId, optionId]);
   await connection.query('INSERT INTO product_attribute_values (product_id, option_id) VALUES ?', [values]);
 }
 
@@ -300,7 +304,7 @@ export async function updateProduct(req, res) {
     // Best-effort wishlist notification — must not let a DB/mail hiccup here become an
     // unhandled rejection, which (Node >=15) crashes the whole process, not just this request.
     notifyBackInStock(req.business.id, req.params.id).catch((err) => {
-      console.error('notifyBackInStock failed:', err.message);
+      logger.error({ err, businessId: req.business.id, productId: req.params.id }, 'notifyBackInStock failed');
     });
   }
 }

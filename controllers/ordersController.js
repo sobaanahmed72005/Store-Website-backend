@@ -12,6 +12,7 @@ import { logAudit } from '../utils/auditLog.js';
 import { handleImageUpload } from '../utils/uploadHandler.js';
 import { paymentProofsDir, GENERATED_FILENAME_PATTERN } from '../middleware/upload.js';
 import { FRONTEND_URL } from '../config/env.js';
+import { logger } from '../utils/logger.js';
 
 export const uploadPaymentProof = handleImageUpload;
 
@@ -532,7 +533,7 @@ export async function updateOrderStatus(req, res) {
     req, action: 'order.status_change', entityType: 'order', entityId: req.params.id,
     details: { status: { from: order.status, to: status } },
   });
-  sendStatusChangeEmail(req.business.id, req.params.id, status).catch((err) => console.error('[order status email] failed:', err.message));
+  sendStatusChangeEmail(req.business.id, req.params.id, status).catch((err) => logger.error({ err, orderId: req.params.id, status }, 'Order status email failed'));
 }
 
 // Lets the periodic Leopards tracking sync move an order's status forward.

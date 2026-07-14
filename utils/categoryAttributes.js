@@ -14,6 +14,28 @@ export async function getAncestorChainIds(businessId, categoryId) {
   return chain;
 }
 
+// A category's own attributes only, no inherited ones — used wherever the caller wants exactly
+// what was defined directly on this category (e.g. the category-admin editor), as opposed to
+// getEffectiveAttributesForCategory's inheritance-aware chain below.
+export async function getOwnAttributesForCategory(businessId, categoryId) {
+  const [attributes] = await pool.query(
+    'SELECT id, name FROM category_attributes WHERE business_id = ? AND category_id = ? ORDER BY sort_order, id',
+    [businessId, categoryId]
+  );
+  if (attributes.length === 0) return [];
+
+  const [options] = await pool.query(
+    `SELECT id, attribute_id, value FROM category_attribute_options WHERE attribute_id IN (${attributes.map(() => '?').join(',')}) ORDER BY sort_order, id`,
+    attributes.map((a) => a.id)
+  );
+
+  return attributes.map((attr) => ({
+    id: attr.id,
+    name: attr.name,
+    options: options.filter((o) => o.attribute_id === attr.id).map((o) => ({ id: o.id, value: o.value })),
+  }));
+}
+
 export async function getEffectiveAttributesForCategory(businessId, categoryId) {
   const chain = await getAncestorChainIds(businessId, categoryId);
   if (chain.length === 0) return [];

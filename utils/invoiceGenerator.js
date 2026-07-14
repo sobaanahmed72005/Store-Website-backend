@@ -1,6 +1,7 @@
 import PDFDocument from 'pdfkit'
 import pool from '../config/db.js'
 import { BACKEND_URL, FRONTEND_URL } from '../config/env.js'
+import { PAYMENT_LABEL_MAP as PAYMENT_LABEL } from './emailTemplate.js'
 
 // Matches the site's teal/gold theme (src/index.css --color-cz-*)
 const HEADER_BG = '#2b6580' // cz-header — same shade the live site header uses behind the logo
@@ -13,13 +14,6 @@ const TEXT      = '#1f3a44'
 const MUTED     = '#5c7a86'
 const LINE      = '#d7e2e6'
 const TOTAL_BG  = '#eaf2ef'
-
-const PAYMENT_LABEL = {
-  bank_transfer: 'Bank Transfer',
-  jazzcash:      'JazzCash',
-  easypaisa:     'EasyPaisa',
-  cod:           'Cash on Delivery',
-}
 
 async function fetchImageBuffer(url) {
   if (!url) return null

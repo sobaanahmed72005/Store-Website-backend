@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from 'crypto';
 import { JWT_SECRET } from '../config/env.js';
+import { buildStoreUrl } from './storeUrl.js';
 
 if (!JWT_SECRET) {
   throw new Error('JWT_SECRET must be set — refusing to sign unsubscribe tokens with a default secret.');
@@ -19,4 +20,9 @@ export function verifyUnsubscribeToken(businessId, email, token) {
   const b = Buffer.from(token);
   if (a.length !== b.length) return false;
   return timingSafeEqual(a, b);
+}
+
+export function buildUnsubscribeUrl(business, email) {
+  const token = generateUnsubscribeToken(business.id, email);
+  return `${buildStoreUrl(business.slug)}/unsubscribe?email=${encodeURIComponent(email)}&token=${token}`;
 }

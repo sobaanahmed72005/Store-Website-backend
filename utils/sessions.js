@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import pool from '../config/db.js';
+import { logger } from './logger.js';
 
 // One row per login (see sql/schema.sql). The id is an unguessable random token, not a
 // sequential int, so it can safely live inside the JWT without leaking how many sessions
@@ -26,6 +27,6 @@ export async function pruneOldSessions() {
   try {
     await pool.query('DELETE FROM sessions WHERE created_at < NOW() - INTERVAL 30 DAY');
   } catch (err) {
-    console.error('pruneOldSessions failed:', err);
+    logger.error({ err }, 'pruneOldSessions failed');
   }
 }

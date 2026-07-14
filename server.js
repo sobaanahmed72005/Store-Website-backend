@@ -2,9 +2,11 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
+import pinoHttp from 'pino-http';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+import { logger } from './utils/logger.js';
 import categoriesRouter from './routes/categories.js';
 import productsRouter from './routes/products.js';
 import authRouter from './routes/auth.js';
@@ -54,6 +56,15 @@ const app = express();
 // collapse every real client behind it into a single shared rate-limit bucket. `1` trusts only
 // that one hop, unlike `true`, which would trust the whole header and let a client spoof it.
 app.set('trust proxy', 1);
+// Logs one structured line per request on completion (method, url, status, response time,
+// request id) — the request id also shows up in req.log's output below, so a specific request's
+// completion line and any error it logged along the way can be correlated in the log stream.
+// Health checks are excluded since they're polled on an interval and would otherwise dominate
+// the log volume with routine 200s.
+app.use(pinoHttp({
+  logger,
+  autoLogging: { ignore: (req) => req.url === '/api/health' },
+}));
 app.use(helmet({
   // Uploaded product images are loaded cross-origin (<img>) from store subdomains, and this
   // server has no HTML views of its own for CSP to protect.
@@ -99,8 +110,24 @@ app.use((req, res) => {
   res.status(404).json({ error: 'Not found' });
 });
 
+// This is where most controller errors actually land, not a fallback for the rare case — most
+// route handlers have no try/catch at all and rely on Express 5 auto-forwarding a rejected
+// async handler's promise straight here. A controller only adds its own try/catch when it needs
+// to translate one *specific, expected* failure into a friendlier response than this handler's
+// generic one — e.g. catching err.code === 'ER_DUP_ENTRY' on an insert that can hit a unique
+// constraint, to return "that code already exists" instead of a raw 500 — and re-throws
+// (`throw err`) anything else so it still reaches here. If you're adding a new insert/update
+// that can hit a real DB constraint under normal use (not just "in theory"), catch that specific
+// error code the same way; don't reach for a blanket try/catch around DB calls that can't
+// otherwise fail.
 app.use((err, req, res, next) => {
-  console.error(err);
+  // req.log (from pino-http above) is already bound to this request's id, so this line and the
+  // request's own completion line end up correlated in the log stream. business/userId aren't
+  // things pino-http could know about on its own, so they're added explicitly here.
+  (req.log || logger).error(
+    { err, method: req.method, url: req.originalUrl, business: req.business?.slug, userId: req.user?.id },
+    'Request failed'
+  );
   // mysql2 sets sqlMessage/sqlState on raw DB-driver errors, which can echo back schema/query
   // details — mask those in production. Every other thrown error in this codebase (validation,
   // CORS, integration failures like "Leopards is not enabled") is a hand-written message that's
@@ -111,8 +138,17 @@ app.use((err, req, res, next) => {
   res.status(err.status || 500).json({ error: showDetail ? (err.message || 'Internal server error') : 'Internal server error' });
 });
 
+process.on('uncaughtException', (err) => {
+  logger.fatal({ err }, 'Uncaught exception');
+  process.exit(1);
+});
+process.on('unhandledRejection', (err) => {
+  logger.fatal({ err }, 'Unhandled rejection');
+  process.exit(1);
+});
+
 app.listen(PORT, () => {
-  console.log(`Backend API running on http://localhost:${PORT}`);
+  logger.info(`Backend API running on http://localhost:${PORT}`);
   setTimeout(sendReviewReminders, 10_000);
   setInterval(sendReviewReminders, 60 * 60 * 1000);
   setTimeout(syncLeopardsTracking, 20_000);

@@ -1,5 +1,5 @@
 import pool from '../config/db.js';
-import { getEffectiveAttributesForCategory, getMergedAttributesForCategory } from '../utils/categoryAttributes.js';
+import { getOwnAttributesForCategory, getEffectiveAttributesForCategory, getMergedAttributesForCategory } from '../utils/categoryAttributes.js';
 
 async function assertCategoryOwnership(categoryId, businessId) {
   const [rows] = await pool.query('SELECT id FROM categories WHERE id = ? AND business_id = ?', [categoryId, businessId]);
@@ -24,24 +24,7 @@ export async function listForCategory(req, res) {
     return res.json(await getEffectiveAttributesForCategory(req.business.id, id));
   }
 
-  const [attributes] = await pool.query(
-    'SELECT id, name FROM category_attributes WHERE category_id = ? ORDER BY sort_order, id',
-    [id]
-  );
-  if (attributes.length === 0) return res.json([]);
-
-  const [options] = await pool.query(
-    `SELECT id, attribute_id, value FROM category_attribute_options WHERE attribute_id IN (${attributes.map(() => '?').join(',')}) ORDER BY sort_order, id`,
-    attributes.map((a) => a.id)
-  );
-
-  res.json(
-    attributes.map((attr) => ({
-      id: attr.id,
-      name: attr.name,
-      options: options.filter((o) => o.attribute_id === attr.id).map((o) => ({ id: o.id, value: o.value })),
-    }))
-  );
+  res.json(await getOwnAttributesForCategory(req.business.id, id));
 }
 
 export async function createAttribute(req, res) {

@@ -2,16 +2,10 @@ import pool from '../config/db.js';
 import { sendMail } from '../utils/mailer.js';
 import { wrapEmail, emailGreeting, emailParagraph, emailButton, emailDivider } from '../utils/emailTemplate.js';
 import { getEmailTemplate, applyPlaceholders } from '../utils/emailLoader.js';
-import { generateUnsubscribeToken, verifyUnsubscribeToken } from '../utils/unsubscribeToken.js';
+import { verifyUnsubscribeToken, buildUnsubscribeUrl } from '../utils/unsubscribeToken.js';
 import { buildStoreUrl } from '../utils/storeUrl.js';
 import { getSiteName } from './contentController.js';
-
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-function buildUnsubscribeUrl(business, email) {
-  const token = generateUnsubscribeToken(business.id, email);
-  return `${buildStoreUrl(business.slug)}/unsubscribe?email=${encodeURIComponent(email)}&token=${token}`;
-}
+import { EMAIL_PATTERN } from '../utils/validation.js';
 
 async function buildWelcomeEmail(business, email) {
   const [tpl, storeName] = await Promise.all([

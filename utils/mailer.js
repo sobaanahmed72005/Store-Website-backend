@@ -1,5 +1,6 @@
 import nodemailer from 'nodemailer';
 import { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM } from '../config/env.js';
+import { logger } from './logger.js';
 
 let transporter = null;
 let loggedFallbackNotice = false;
@@ -21,11 +22,13 @@ function getTransporter() {
   transporter = {
     sendMail: async ({ to, subject, html, attachments }) => {
       if (!loggedFallbackNotice) {
-        console.log('No SMTP_HOST configured — emails will be logged here instead of sent. Set SMTP_HOST/PORT/USER/PASS in backend/.env to send real emails.');
+        logger.info('No SMTP_HOST configured — emails will be logged here instead of sent. Set SMTP_HOST/PORT/USER/PASS in backend/.env to send real emails.');
         loggedFallbackNotice = true;
       }
-      const attNote = attachments?.length ? `\nAttachments: ${attachments.map((a) => a.filename).join(', ')}` : '';
-      console.log(`\n--- EMAIL (not sent — no SMTP configured) ---\nTo: ${to}\nSubject: ${subject}${attNote}\n${html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()}\n--- END EMAIL ---\n`);
+      logger.debug(
+        { to, subject, attachments: attachments?.map((a) => a.filename) },
+        html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+      );
       return { logged: true };
     },
   };
@@ -38,6 +41,6 @@ export async function sendMail({ to, subject, html, attachments, replyTo }) {
     const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
     await getTransporter().sendMail({ from, to, subject, html, text, attachments, replyTo });
   } catch (err) {
-    console.error('Failed to send email:', err.message);
+    logger.error({ err, to, subject }, 'Failed to send email');
   }
 }

@@ -1,15 +1,9 @@
 import pool from '../config/db.js';
 import { sendMail } from '../utils/mailer.js';
 import { wrapEmail, emailParagraph, emailDivider } from '../utils/emailTemplate.js';
-import { generateUnsubscribeToken } from '../utils/unsubscribeToken.js';
-import { buildStoreUrl } from '../utils/storeUrl.js';
+import { buildUnsubscribeUrl } from '../utils/unsubscribeToken.js';
 import { getSiteName } from './contentController.js';
 import { BACKEND_URL } from '../config/env.js';
-
-function buildUnsubscribeUrl(business, email) {
-  const token = generateUnsubscribeToken(business.id, email);
-  return `${buildStoreUrl(business.slug)}/unsubscribe?email=${encodeURIComponent(email)}&token=${token}`;
-}
 
 function buildPromoHtml({ subject, message, poster_image }, unsubscribeUrl, storeName) {
   const backendUrl = BACKEND_URL;

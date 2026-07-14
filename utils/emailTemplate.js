@@ -133,7 +133,7 @@ export function emailParagraph(text) {
   return `<p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:${TEXT};">${text}</p>`;
 }
 
-const PAYMENT_LABEL_MAP = {
+export const PAYMENT_LABEL_MAP = {
   bank_transfer: 'Bank / Wallet Transfer',
   jazzcash:      'JazzCash',
   easypaisa:     'EasyPaisa',

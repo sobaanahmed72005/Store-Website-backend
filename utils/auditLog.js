@@ -1,4 +1,5 @@
 import pool from '../config/db.js';
+import { logger } from './logger.js';
 
 const PAGE_SIZE = 50;
 
@@ -36,6 +37,6 @@ export async function logAudit({ req, action, entityType, entityId, details }) {
       ]
     );
   } catch (err) {
-    console.error('[audit log] failed to record entry:', err.message);
+    logger.error({ err, action, entityType, entityId }, 'Failed to record audit log entry');
   }
 }

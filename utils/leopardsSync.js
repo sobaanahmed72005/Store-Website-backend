@@ -1,6 +1,9 @@
 import pool from '../config/db.js';
 import { trackLeopardsPackets, mapLeopardsStatus } from '../controllers/courierController.js';
 import { applySyncedOrderStatus } from '../controllers/ordersController.js';
+import { logger } from './logger.js';
+
+const log = logger.child({ component: 'leopardsSync' });
 
 const TRACKABLE_STATUSES = ['shipped', 'out_for_delivery'];
 const CHUNK_SIZE = 50;
@@ -15,10 +18,10 @@ export async function syncLeopardsTracking() {
       `SELECT DISTINCT business_id FROM courier_settings WHERE enabled = 1 AND provider LIKE '%leopards%'`
     );
     for (const { business_id } of businesses) {
-      await syncBusiness(business_id).catch((err) => console.error(`[leopardsSync] business ${business_id} failed:`, err.message));
+      await syncBusiness(business_id).catch((err) => log.error({ err, businessId: business_id }, 'Sync failed for business'));
     }
   } catch (err) {
-    console.error('[leopardsSync] failed:', err.message);
+    log.error({ err }, 'Sync failed');
   }
 }
 
@@ -36,7 +39,7 @@ async function syncBusiness(businessId) {
     try {
       packets = await trackLeopardsPackets(businessId, chunk.map((o) => o.tracking_number));
     } catch (err) {
-      console.error(`[leopardsSync] track call failed for business ${businessId}:`, err.message);
+      log.error({ err, businessId }, 'Track call failed');
       continue;
     }
 
@@ -49,7 +52,7 @@ async function syncBusiness(businessId) {
       if (!mapped || mapped === order.status) continue;
 
       const applied = await applySyncedOrderStatus(businessId, order.id, order.status, mapped);
-      if (applied) console.log(`[leopardsSync] order ${order.id}: ${order.status} -> ${mapped} (Leopards: "${rawStatus}")`);
+      if (applied) log.info({ orderId: order.id, from: order.status, to: mapped, rawStatus }, 'Order status synced from Leopards');
     }
   }
 }

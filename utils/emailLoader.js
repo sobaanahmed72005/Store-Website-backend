@@ -1,7 +1,7 @@
 import pool from '../config/db.js';
 import { escapeHtml } from './emailTemplate.js';
 
-const TEMPLATE_DEFAULTS = {
+export const TEMPLATE_DEFAULTS = {
   signup: {
     subject: 'Verify your email address',
     message: "Thanks for creating an account with us! To get started, please verify your email address by clicking the button below.",
