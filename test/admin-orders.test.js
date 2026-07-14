@@ -104,7 +104,11 @@ describe('admin order management', () => {
       ]);
 
       const statuses = [first.status, second.status].sort();
-      assert.deepEqual(statuses, [200, 409]);
+      assert.deepEqual(
+        statuses, [200, 409],
+        `expected exactly one 200 and one 409, got ${JSON.stringify(statuses)}. ` +
+        `Response bodies: ${JSON.stringify([first.body, second.body])}`
+      );
 
       const [[order]] = await pool.query('SELECT status FROM orders WHERE id = ?', [orderId]);
       assert.equal(order.status, 'confirmed');
