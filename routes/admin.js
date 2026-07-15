@@ -17,6 +17,7 @@ import {
 import {
   getProducts,
   getProductById,
+  getProductBrands,
   createProduct,
   updateProduct,
   deleteProduct,
@@ -84,6 +85,7 @@ router.get('/reports/sale-split', getSaleSplit);
 
 router.get('/products', getProducts);
 router.post('/products/bulk-sale', bulkSale);
+router.get('/products/brands', getProductBrands);
 router.get('/products/:id', getProductById);
 router.post('/products', createProduct);
 router.put('/products/:id', updateProduct);

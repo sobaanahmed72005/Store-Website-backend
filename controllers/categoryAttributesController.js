@@ -1,6 +1,19 @@
 import pool from '../config/db.js';
 import { getOwnAttributesForCategory, getEffectiveAttributesForCategory, getMergedAttributesForCategory } from '../utils/categoryAttributes.js';
 
+// The storefront category page renders its own "Brand" filter automatically, built straight
+// from each product's brand field — it's entirely separate from this admin-defined attribute
+// system and doesn't know these could be "the same thing". A custom attribute also named
+// "Brand" doesn't merge with it; it renders as a second, independent "Brand" section stacked
+// right below the automatic one. Blocked here rather than left to collide, since that's the
+// only thing that actually prevents it (a warning an admin can dismiss doesn't).
+const RESERVED_ATTRIBUTE_NAMES = new Set(['brand']);
+
+function reservedAttributeNameError(name) {
+  if (!RESERVED_ATTRIBUTE_NAMES.has(name.trim().toLowerCase())) return null;
+  return `"${name.trim()}" is already a built-in filter shown automatically on every category page — a custom filter with this name would show as a second, separate "${name.trim()}" section instead of replacing it. Try a different name, e.g. "Manufacturer".`;
+}
+
 async function assertCategoryOwnership(categoryId, businessId) {
   const [rows] = await pool.query('SELECT id FROM categories WHERE id = ? AND business_id = ?', [categoryId, businessId]);
   return rows.length > 0;
@@ -31,6 +44,8 @@ export async function createAttribute(req, res) {
   const { id } = req.params;
   const { name } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'name is required' });
+  const reservedError = reservedAttributeNameError(name);
+  if (reservedError) return res.status(400).json({ error: reservedError });
   if (!(await assertCategoryOwnership(id, req.business.id))) {
     return res.status(404).json({ error: 'Category not found' });
   }
@@ -51,6 +66,8 @@ export async function renameAttribute(req, res) {
   const { attrId } = req.params;
   const { name } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'name is required' });
+  const reservedError = reservedAttributeNameError(name);
+  if (reservedError) return res.status(400).json({ error: reservedError });
   const attribute = await assertAttributeOwnership(attrId, req.business.id);
   if (!attribute) return res.status(404).json({ error: 'Filter not found' });
 

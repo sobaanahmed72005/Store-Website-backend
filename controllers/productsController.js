@@ -270,6 +270,22 @@ export async function getProducts(req, res) {
   res.json(buildPaginatedResponse('products', await attachExtras(rows), total, page, limit));
 }
 
+// Brand isn't a managed list anywhere — it's just a text field on each product — so admin
+// autocomplete works off whatever values are already in use, deduped case-insensitively so
+// "Dell" and "dell" (typed on different days) suggest as one entry instead of two.
+export async function getProductBrands(req, res) {
+  const [rows] = await pool.query(
+    "SELECT DISTINCT brand FROM products WHERE business_id = ? AND brand IS NOT NULL AND brand != ''",
+    [req.business.id]
+  );
+  const byKey = new Map();
+  for (const { brand } of rows) {
+    const key = brand.trim().toLowerCase();
+    if (!byKey.has(key)) byKey.set(key, brand.trim());
+  }
+  res.json([...byKey.values()].sort((a, b) => a.localeCompare(b)));
+}
+
 export async function getProductById(req, res) {
   const [rows] = await pool.query(
     'SELECT p.*, c.name AS category_name, c.slug AS category_slug FROM products p LEFT JOIN categories c ON p.category_id = c.id WHERE p.business_id = ? AND p.id = ?',
