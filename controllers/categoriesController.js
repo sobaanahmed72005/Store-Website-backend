@@ -1,5 +1,6 @@
 import pool from '../config/db.js';
 import { getOwnAttributesForCategory, getAncestorChainIds } from '../utils/categoryAttributes.js';
+import { resolveCategoryAndDescendantIds } from './productsController.js';
 
 export async function getCategories(req, res) {
   const [rows] = await pool.query('SELECT * FROM categories WHERE business_id = ? ORDER BY sort_order, name', [req.business.id]);
@@ -29,7 +30,23 @@ export async function getCategoryBySlug(req, res) {
     category.id,
   ]);
   const attributes = await getOwnAttributesForCategory(req.business.id, category.id);
-  res.json({ ...category, subcategories, attributes });
+
+  // Independent of whatever page/filter is currently active on the storefront — the sidebar's
+  // Brand checkbox list needs to stay stable (every brand that exists anywhere in this category)
+  // rather than shrinking to just what happens to be on the currently-filtered page.
+  const categoryIds = await resolveCategoryAndDescendantIds(req.business.id, req.params.slug);
+  const [brandRows] = await pool.query(
+    `SELECT DISTINCT brand FROM products WHERE business_id = ? AND category_id IN (${categoryIds.map(() => '?').join(',')}) AND brand IS NOT NULL AND brand != ''`,
+    [req.business.id, ...categoryIds]
+  );
+  const brandByKey = new Map();
+  for (const { brand } of brandRows) {
+    const key = brand.trim().toLowerCase();
+    if (!brandByKey.has(key)) brandByKey.set(key, brand.trim());
+  }
+  const availableBrands = [...brandByKey.values()].sort((a, b) => a.localeCompare(b));
+
+  res.json({ ...category, subcategories, attributes, availableBrands });
 }
 
 export async function createCategory(req, res) {

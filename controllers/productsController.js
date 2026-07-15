@@ -213,7 +213,7 @@ async function setProductSpecOverrides(connection, productId, specOverrides) {
 
 // A parent category page should show products from that category AND all of its subcategories
 // (any nesting depth), not just products assigned directly to it.
-async function resolveCategoryAndDescendantIds(businessId, slug) {
+export async function resolveCategoryAndDescendantIds(businessId, slug) {
   const [matchRows] = await pool.query(
     'SELECT id FROM categories WHERE business_id = ? AND slug = ?',
     [businessId, slug]
@@ -239,10 +239,32 @@ async function resolveCategoryAndDescendantIds(businessId, slug) {
   return [...ids];
 }
 
+// Whitelisted, not built from the raw query value — sort is a client-controlled param, and
+// interpolating it straight into ORDER BY would be a SQL injection hole. Price matches
+// getEffectivePrice's logic on the frontend (utils/pricing.js): the discount price only counts
+// while is_on_sale is actually on, not just because a discount_price happens to be set.
+const SORT_CLAUSES = {
+  newest: 'p.created_at DESC',
+  price_asc: 'IF(p.is_on_sale = 1 AND p.discount_price IS NOT NULL, p.discount_price, p.price) ASC',
+  price_desc: 'IF(p.is_on_sale = 1 AND p.discount_price IS NOT NULL, p.discount_price, p.price) DESC',
+  name_asc: 'p.name ASC',
+  name_desc: 'p.name DESC',
+  // NULL (no reviews yet) sorts last here, same as MySQL's default NULL-ordering for DESC —
+  // unrated products sink to the bottom instead of outranking genuinely well-reviewed ones.
+  rating: 'rv.avg_rating DESC, p.created_at DESC',
+};
+
 export async function getProducts(req, res) {
-  const { category, search, featured, new_arrival, on_sale } = req.query;
+  const { category, search, featured, new_arrival, on_sale, brand, options, sort } = req.query;
   const { page, limit, offset } = parsePagination(req, 24);
-  let sql = 'SELECT p.*, c.name AS category_name, c.slug AS category_slug FROM products p LEFT JOIN categories c ON p.category_id = c.id';
+  // The rating join only runs when actually sorting by rating — every other listing request
+  // (the overwhelming majority) skips the extra join and aggregate entirely.
+  const needsRatingJoin = sort === 'rating';
+  let sql = `SELECT p.*, c.name AS category_name, c.slug AS category_slug FROM products p LEFT JOIN categories c ON p.category_id = c.id${
+    needsRatingJoin
+      ? " LEFT JOIN (SELECT product_id, AVG(rating) AS avg_rating FROM product_reviews WHERE status = 'approved' GROUP BY product_id) rv ON rv.product_id = p.id"
+      : ''
+  }`;
   const params = [req.business.id];
   const where = ['p.business_id = ?'];
   if (category) {
@@ -258,6 +280,41 @@ export async function getProducts(req, res) {
   if (featured) where.push('p.is_featured = 1');
   if (new_arrival) where.push('p.is_new_arrival = 1');
   if (on_sale) where.push('p.is_on_sale = 1');
+  // Brand is plain text on the product, matched case-insensitively (the storefront's own filter
+  // checkboxes are similarly deduped case-insensitively) — a comma-separated list is an OR (any
+  // of the checked brands).
+  if (brand) {
+    const brandList = brand.split(',').map((b) => b.trim()).filter(Boolean);
+    if (brandList.length > 0) {
+      where.push(`LOWER(p.brand) IN (${brandList.map(() => '?').join(',')})`);
+      params.push(...brandList.map((b) => b.toLowerCase()));
+    }
+  }
+  // Selected category-attribute option ids, e.g. "3,7,9". Grouped by their real attribute_id
+  // (looked up here, not trusted from the client) so the filter matches the sidebar's own
+  // semantics: a product must have at least one selected option from EVERY attribute that has a
+  // selection (AND across attributes), but only needs to match ANY one selected option within a
+  // single attribute (OR within an attribute, e.g. "1080p" OR "2K").
+  if (options) {
+    const optionIds = [...new Set(options.split(',').map(Number).filter(Number.isInteger))];
+    if (optionIds.length > 0) {
+      const [optionRows] = await pool.query(
+        `SELECT id, attribute_id FROM category_attribute_options WHERE id IN (${optionIds.map(() => '?').join(',')})`,
+        optionIds
+      );
+      const groups = new Map();
+      for (const row of optionRows) {
+        if (!groups.has(row.attribute_id)) groups.set(row.attribute_id, []);
+        groups.get(row.attribute_id).push(row.id);
+      }
+      for (const groupOptionIds of groups.values()) {
+        where.push(
+          `p.id IN (SELECT product_id FROM product_attribute_values WHERE option_id IN (${groupOptionIds.map(() => '?').join(',')}))`
+        );
+        params.push(...groupOptionIds);
+      }
+    }
+  }
   const whereSql = ' WHERE ' + where.join(' AND ');
 
   const [[{ total }]] = await pool.query(
@@ -265,7 +322,8 @@ export async function getProducts(req, res) {
     params
   );
 
-  sql += whereSql + ' ORDER BY p.created_at DESC LIMIT ? OFFSET ?';
+  const orderBy = SORT_CLAUSES[sort] || SORT_CLAUSES.newest;
+  sql += whereSql + ` ORDER BY ${orderBy} LIMIT ? OFFSET ?`;
   const [rows] = await pool.query(sql, [...params, limit, offset]);
   res.json(buildPaginatedResponse('products', await attachExtras(rows), total, page, limit));
 }
