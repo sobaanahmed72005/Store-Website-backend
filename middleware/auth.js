@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken';
 import { AUTH_COOKIE } from '../utils/authCookies.js';
 import { JWT_SECRET } from '../config/env.js';
+import { isSessionRevoked } from '../utils/sessionRevocation.js';
 
 export async function requireAuth(req, res, next) {
   const token = req.cookies?.[AUTH_COOKIE];
@@ -10,6 +11,13 @@ export async function requireAuth(req, res, next) {
     const payload = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
     if (!req.business || payload.business_id !== req.business.id) {
       return res.status(401).json({ error: 'Invalid token for this store' });
+    }
+    // The JWT's own signature/expiry says this access token is still valid, but that alone
+    // can't reflect a logout/password-change/2FA-disable that happened since it was issued —
+    // this in-memory check is what makes revocation take effect immediately instead of waiting
+    // out the token's remaining 15-minute lifetime (see utils/sessionRevocation.js).
+    if (isSessionRevoked(payload.session_id)) {
+      return res.status(401).json({ error: 'Session revoked', code: 'SESSION_REVOKED' });
     }
     req.user = payload;
     req.sessionId = payload.session_id;
