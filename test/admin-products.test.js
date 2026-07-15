@@ -73,6 +73,30 @@ describe('admin products and categories', () => {
     });
   });
 
+  describe('PUT /api/admin/categories/:id — cycle protection', () => {
+    it('rejects a category being set as its own parent', async () => {
+      const res = await adminAgent.put(`/api/admin/categories/${categoryId}`).send({ name: 'Test Category', slug: `test-category-cycle-${Date.now()}`, parent_id: categoryId });
+      assert.equal(res.status, 400);
+    });
+
+    it('rejects a child category being set as the parent of its own ancestor', async () => {
+      const childSlug = `test-category-child-${Date.now()}`;
+      const child = await adminAgent.post('/api/admin/categories').send({ name: 'Test Child', slug: childSlug, parent_id: categoryId });
+      assert.equal(child.status, 201);
+      const childId = child.body.id;
+
+      try {
+        // categoryId -> childId already exists; pointing categoryId's parent at childId would
+        // close the loop (categoryId -> childId -> categoryId), which getCategoryTree can't
+        // render (a circular object graph) — see docs/AUDIT.md.
+        const res = await adminAgent.put(`/api/admin/categories/${categoryId}`).send({ name: 'Test Category', slug: `test-category-${Date.now()}`, parent_id: childId });
+        assert.equal(res.status, 400);
+      } finally {
+        await pool.query('DELETE FROM categories WHERE id = ?', [childId]);
+      }
+    });
+  });
+
   describe('category attributes', () => {
     let attributeId;
 

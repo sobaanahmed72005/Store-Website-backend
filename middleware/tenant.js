@@ -31,14 +31,43 @@ function extractSlug(req) {
   return 'main';
 }
 
+// businesses is small and changes rarely (a tenant signing up or an admin flipping status), but
+// every single request — including plain product browsing — was paying a DB round trip and a
+// pool connection just to resolve it. A short TTL means an admin suspending a store takes effect
+// within seconds rather than instantly, which is an acceptable trade for cutting this off the hot
+// path of every request. Per-process, like the rate-limit/session-revocation caches (see
+// README.md) — fine for a single instance, would need Redis to stay consistent across more than one.
+const CACHE_TTL_MS = 30_000;
+const cache = new Map(); // slug -> { business, expiresAt } | { notFound: true, expiresAt }
+
+function getCached(slug) {
+  const entry = cache.get(slug);
+  if (!entry) return undefined;
+  if (entry.expiresAt <= Date.now()) {
+    cache.delete(slug);
+    return undefined;
+  }
+  return entry;
+}
+
 export async function resolveBusiness(req, res, next) {
   const slug = extractSlug(req);
 
   try {
+    const cached = getCached(slug);
+    if (cached) {
+      if (cached.notFound) return res.status(404).json({ error: 'Store not found' });
+      req.business = cached.business;
+      return next();
+    }
+
     const [rows] = await pool.query('SELECT id, name, slug, status FROM businesses WHERE slug = ?', [slug]);
+    const expiresAt = Date.now() + CACHE_TTL_MS;
     if (rows.length === 0 || rows[0].status !== 'active') {
+      cache.set(slug, { notFound: true, expiresAt });
       return res.status(404).json({ error: 'Store not found' });
     }
+    cache.set(slug, { business: rows[0], expiresAt });
     req.business = rows[0];
     next();
   } catch (err) {

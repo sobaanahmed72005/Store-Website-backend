@@ -170,17 +170,59 @@ export async function getContent(req, res) {
   res.json(value);
 }
 
+// Only a handful of fields actually flow into places a wrong type would cause real damage
+// (site-settings.logo is fetched server-side when generating invoices — see
+// utils/invoiceGenerator.js — and would throw if it weren't a string; footer-brand.columns feeds
+// array iteration on the storefront). This isn't a full schema for every key (see docs/AUDIT.md),
+// just a guard against the concrete failure modes above plus an overall size cap so this endpoint
+// can't be used to stuff an arbitrarily large blob into a row.
+const MAX_CONTENT_BYTES = 200_000;
+const FIELD_SHAPES = {
+  'site-settings': { siteName: 'string', logo: 'string' },
+  'payment-settings': { methods: 'object' },
+  'hero-banners': { slides: 'array', sideBanners: 'array' },
+  'footer-brand': { columns: 'array', social: 'object' },
+};
+
+function typeOf(value) {
+  if (Array.isArray(value)) return 'array';
+  if (value === null) return 'null';
+  return typeof value;
+}
+
+function shapeError(key, body) {
+  const expected = FIELD_SHAPES[key];
+  if (!expected) return null;
+  for (const [field, expectedType] of Object.entries(expected)) {
+    if (body[field] === undefined || body[field] === null) continue; // optional — DEFAULTS covers absence
+    if (typeOf(body[field]) !== expectedType) {
+      return `"${field}" must be a${expectedType === 'object' ? 'n' : ''} ${expectedType}`;
+    }
+  }
+  return null;
+}
+
 export async function updateContent(req, res) {
   const { key } = req.params;
   if (!ALLOWED_KEYS.includes(key)) return res.status(404).json({ error: 'Unknown content key' });
 
+  if (typeOf(req.body) !== 'object') {
+    return res.status(400).json({ error: 'Request body must be a JSON object' });
+  }
   if (key === 'currency-settings' && !(req.body?.enabled?.length > 0)) {
     return res.status(400).json({ error: 'At least one currency must remain enabled' });
+  }
+  const shapeErr = shapeError(key, req.body);
+  if (shapeErr) return res.status(400).json({ error: shapeErr });
+
+  const serialized = JSON.stringify(req.body);
+  if (Buffer.byteLength(serialized, 'utf8') > MAX_CONTENT_BYTES) {
+    return res.status(400).json({ error: 'Content is too large' });
   }
 
   await pool.query(
     'INSERT INTO site_content (business_id, content_key, value) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)',
-    [req.business.id, key, JSON.stringify(req.body)]
+    [req.business.id, key, serialized]
   );
   res.json({ message: 'Content updated' });
 }

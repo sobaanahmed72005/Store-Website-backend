@@ -11,6 +11,13 @@ export function parsePagination(req, defaultLimit) {
   return { page, limit, offset };
 }
 
+// For endpoints that take a plain "top N" limit rather than full page/offset pagination (the
+// reportsController.js chart endpoints) — same clamping idea as parsePagination above, kept
+// separate since these have their own, lower default/max (report charts don't need 100 rows).
+export function clampLimit(req, defaultLimit, maxLimit = 50) {
+  return Math.min(maxLimit, Math.max(1, Math.trunc(Number(req.query.limit)) || defaultLimit));
+}
+
 export function buildPaginatedResponse(key, rows, total, page, limit) {
   return {
     [key]: rows,

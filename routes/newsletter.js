@@ -1,11 +1,11 @@
 import express from 'express';
 import { subscribe, checkStatus, unsubscribe } from '../controllers/newsletterController.js';
-import { newsletterRateLimit } from '../middleware/newsletterRateLimit.js';
+import { newsletterRateLimit, newsletterLookupRateLimit } from '../middleware/newsletterRateLimit.js';
 
 const router = express.Router();
 
 router.post('/subscribe', newsletterRateLimit, subscribe);
-router.get('/status', checkStatus);
-router.post('/unsubscribe', unsubscribe);
+router.get('/status', newsletterLookupRateLimit, checkStatus);
+router.post('/unsubscribe', newsletterLookupRateLimit, unsubscribe);
 
 export default router;

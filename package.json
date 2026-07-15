@@ -5,11 +5,12 @@
   "type": "module",
   "main": "server.js",
   "scripts": {
+    "lint": "eslint .",
     "dev": "cross-env NODE_ENV=development node --watch server.js",
     "start": "cross-env NODE_ENV=production node server.js",
-    "test": "cross-env NODE_ENV=test DB_NAME=czone_test node --test --test-concurrency=1 test/*.test.js",
+    "test": "cross-env NODE_ENV=test DB_NAME=czone_test node --test --test-concurrency=1 --test-force-exit test/*.test.js",
     "db:init": "node sql/init.js",
-    "db:migrate": "npm run db:migrate-2fa && npm run db:migrate-updated-at && npm run db:migrate-token-version && npm run db:migrate-discount-guard && npm run db:migrate-sessions && npm run db:migrate-payment-proof && npm run db:migrate-product-variants && npm run db:migrate-product-spec-overrides && npm run db:migrate-verification-expiry",
+    "db:migrate": "npm run db:migrate-2fa && npm run db:migrate-updated-at && npm run db:migrate-token-version && npm run db:migrate-discount-guard && npm run db:migrate-sessions && npm run db:migrate-payment-proof && npm run db:migrate-product-variants && npm run db:migrate-product-spec-overrides && npm run db:migrate-verification-expiry && npm run db:migrate-scale-indexes && npm run db:migrate-totp-replay-guard",
     "db:migrate-2fa": "node sql/migrate-2fa.js",
     "db:migrate-updated-at": "node sql/migrate-updated-at.js",
     "db:migrate-token-version": "node sql/migrate-token-version.js",
@@ -18,9 +19,13 @@
     "db:migrate-payment-proof": "node sql/migrate-payment-proof.js",
     "db:migrate-product-variants": "node sql/migrate-product-variants.js",
     "db:migrate-product-spec-overrides": "node sql/migrate-product-spec-overrides.js",
-    "db:migrate-verification-expiry": "node sql/migrate-verification-expiry.js"
+    "db:migrate-verification-expiry": "node sql/migrate-verification-expiry.js",
+    "db:migrate-scale-indexes": "node sql/migrate-scale-indexes.js",
+    "db:migrate-totp-replay-guard": "node sql/migrate-totp-replay-guard.js",
+    "db:migrate-token-hash": "node sql/migrate-token-hash.js"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1087.0",
     "@sentry/node": "^10.65.0",
     "bcryptjs": "^3.0.2",
     "cookie-parser": "^1.4.7",
@@ -42,6 +47,7 @@
   },
   "devDependencies": {
     "cross-env": "^10.1.0",
+    "eslint": "^9.39.5",
     "pino-pretty": "^13.1.3",
     "supertest": "^7.2.2"
   }

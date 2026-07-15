@@ -63,6 +63,14 @@ app.set('trust proxy', 1);
 app.use(pinoHttp({
   logger,
   autoLogging: { ignore: (req) => req.url === '/api/health' },
+  // Without this, pino-http's default req serializer logs the raw headers object verbatim —
+  // including Cookie, which carries the live access/refresh session tokens (see
+  // utils/authCookies.js). Anyone with read access to shipped logs could otherwise hijack any
+  // logged-in user's session straight out of the log stream.
+  redact: {
+    paths: ['req.headers.cookie', 'req.headers.authorization', 'res.headers["set-cookie"]'],
+    censor: '[redacted]',
+  },
 }));
 app.use(helmet({
   // Uploaded product images are loaded cross-origin (<img>) from store subdomains, and this
@@ -119,6 +127,10 @@ app.use((req, res) => {
 // that can hit a real DB constraint under normal use (not just "in theory"), catch that specific
 // error code the same way; don't reach for a blanket try/catch around DB calls that can't
 // otherwise fail.
+// Express identifies error-handling middleware by arity (exactly 4 params) — dropping the unused
+// `next` below would silently turn this into a normal middleware that Express never routes
+// errors to.
+// eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
   // req.log (from pino-http above) is already bound to this request's id, so this line and the
   // request's own completion line end up correlated in the log stream. business/userId aren't

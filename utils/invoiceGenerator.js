@@ -3,6 +3,8 @@ import pool from '../config/db.js'
 import { BACKEND_URL, FRONTEND_URL } from '../config/env.js'
 import { PAYMENT_LABEL_MAP as PAYMENT_LABEL } from './emailTemplate.js'
 
+const BACKEND_ORIGIN = new URL(BACKEND_URL)
+
 // Matches the site's teal/gold theme (src/index.css --color-cz-*)
 const HEADER_BG = '#2b6580' // cz-header — same shade the live site header uses behind the logo
 const PRIMARY   = '#35708f' // cz-primary
@@ -15,9 +17,23 @@ const MUTED     = '#5c7a86'
 const LINE      = '#d7e2e6'
 const TOTAL_BG  = '#eaf2ef'
 
+// site-settings.logo is an admin-supplied string with no shape validation today (see
+// docs/AUDIT.md) — without this allowlist, setting it to an internal/link-local URL would make
+// every invoice download issue a server-side request to wherever the admin pointed it (blind
+// SSRF: the response only matters if it decodes as an image, but the request itself already
+// reaches the target). A relative path (the normal case) always resolves against BACKEND_URL
+// below and is inherently same-origin; S3_PUBLIC_URL is trusted too since that's where the
+// logo legitimately lives once object storage is configured (see utils/objectStorage.js).
+const TRUSTED_IMAGE_ORIGINS = new Set([BACKEND_ORIGIN.origin]);
+if (process.env.S3_PUBLIC_URL) {
+  try { TRUSTED_IMAGE_ORIGINS.add(new URL(process.env.S3_PUBLIC_URL).origin) } catch { /* invalid config — just won't be trusted */ }
+}
+
 async function fetchImageBuffer(url) {
   if (!url) return null
   try {
+    const parsed = new URL(url)
+    if (!TRUSTED_IMAGE_ORIGINS.has(parsed.origin)) return null
     const res = await fetch(url, { signal: AbortSignal.timeout(5000) })
     if (!res.ok) return null
     return Buffer.from(await res.arrayBuffer())

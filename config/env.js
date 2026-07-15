@@ -35,8 +35,24 @@ export const DB_NAME = process.env.DB_NAME;
 
 export const JWT_SECRET = process.env.JWT_SECRET;
 
+// Every session token (15-minute access + 7-day refresh session id signing) depends entirely on
+// this secret's unpredictability — a short or guessable value is offline-crackable (HS256 is
+// just HMAC-SHA256) and would let an attacker forge a token for any user, including admin. This
+// only checks length/charset variety as a floor, not real entropy, but it catches the realistic
+// failure mode: someone pastes "changeme" or a short placeholder and it silently works forever.
+function assertStrongSecret(name, value, minLength) {
+  if (!IS_PRODUCTION) return; // don't block local dev/test on this — .env.example ships no secrets
+  if (!value || value.length < minLength) {
+    throw new Error(`${name} must be set to a random value of at least ${minLength} characters in production (see .env.example for how to generate one).`);
+  }
+}
+assertStrongSecret('JWT_SECRET', JWT_SECRET, 32);
+
 // Encrypts payment gateway (Safepay) and courier API credentials at rest in the database.
 export const CREDENTIALS_ENCRYPTION_KEY = process.env.CREDENTIALS_ENCRYPTION_KEY;
+if (IS_PRODUCTION && CREDENTIALS_ENCRYPTION_KEY && !/^[0-9a-f]{64}$/i.test(CREDENTIALS_ENCRYPTION_KEY)) {
+  throw new Error('CREDENTIALS_ENCRYPTION_KEY must be a 64-character hex string (32 bytes) — see .env.example for how to generate one.');
+}
 
 // Seeded store admin account (only used if the account doesn't already exist).
 export const ADMIN_NAME = process.env.ADMIN_NAME || 'Store Admin';

@@ -1,5 +1,5 @@
 import pool from '../config/db.js';
-import { getOwnAttributesForCategory } from '../utils/categoryAttributes.js';
+import { getOwnAttributesForCategory, getAncestorChainIds } from '../utils/categoryAttributes.js';
 
 export async function getCategories(req, res) {
   const [rows] = await pool.query('SELECT * FROM categories WHERE business_id = ? ORDER BY sort_order, name', [req.business.id]);
@@ -69,6 +69,16 @@ export async function updateCategory(req, res) {
   if (parent_id) {
     const [parentRows] = await pool.query('SELECT id FROM categories WHERE id = ? AND business_id = ?', [parent_id, req.business.id]);
     if (parentRows.length === 0) return res.status(400).json({ error: 'Invalid parent category' });
+
+    // Walking up from the proposed parent must never reach this category's own id — that would
+    // make it its own (indirect) ancestor, turning the tree into a cycle. getCategoryTree builds
+    // its result by pushing each row onto its parent's subcategories array by reference, so a
+    // cyclic parent_id makes that object graph circular and crashes the public
+    // GET /api/categories/tree endpoint (res.json throws on a circular structure) until fixed.
+    const ancestorChain = await getAncestorChainIds(req.business.id, Number(parent_id));
+    if (ancestorChain.includes(Number(req.params.id))) {
+      return res.status(400).json({ error: 'A category cannot be its own ancestor' });
+    }
   }
 
   try {

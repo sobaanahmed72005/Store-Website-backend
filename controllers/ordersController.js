@@ -10,13 +10,16 @@ import { generateInvoicePdf } from '../utils/invoiceGenerator.js';
 import { getEmailTemplate, applyPlaceholders } from '../utils/emailLoader.js';
 import { getSiteName } from './contentController.js';
 import { logAudit } from '../utils/auditLog.js';
-import { handleImageUpload } from '../utils/uploadHandler.js';
+import { handlePaymentProofUpload } from '../utils/uploadHandler.js';
 import { paymentProofsDir, GENERATED_FILENAME_PATTERN } from '../middleware/upload.js';
+import { isObjectStorageConfigured, objectExists, getObjectBuffer } from '../utils/objectStorage.js';
 import { FRONTEND_URL } from '../config/env.js';
 import { logger } from '../utils/logger.js';
 import { parsePagination, buildPaginatedResponse } from '../utils/pagination.js';
 
-export const uploadPaymentProof = handleImageUpload;
+export const uploadPaymentProof = handlePaymentProofUpload;
+
+const CONTENT_TYPE_BY_EXT = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', avif: 'image/avif' };
 
 const PAYMENT_PROOF_URL_PATTERN = new RegExp(`^/orders/payment-proof/(${GENERATED_FILENAME_PATTERN.source.slice(1, -1)})$`);
 
@@ -79,7 +82,9 @@ export async function createOrder(req, res) {
     // disk, not an arbitrary client-supplied string or external URL — otherwise anyone could
     // "prove" payment with nothing behind it, or point an admin's browser at a URL of their choosing.
     const match = PAYMENT_PROOF_URL_PATTERN.exec(payment_proof_image);
-    const exists = match && await fs.access(path.join(paymentProofsDir, match[1])).then(() => true, () => false);
+    const exists = match && (isObjectStorageConfigured
+      ? await objectExists(`payment-proofs/${match[1]}`)
+      : await fs.access(path.join(paymentProofsDir, match[1])).then(() => true, () => false));
     if (!exists) return res.status(400).json({ error: 'Invalid payment screenshot' });
   }
 
@@ -339,6 +344,17 @@ export async function servePaymentProof(req, res) {
     return res.status(403).json({ error: 'Forbidden' });
   }
 
+  if (isObjectStorageConfigured) {
+    try {
+      const buffer = await getObjectBuffer(`payment-proofs/${req.params.filename}`);
+      const ext = req.params.filename.split('.').pop().toLowerCase();
+      res.setHeader('Content-Type', CONTENT_TYPE_BY_EXT[ext] || 'application/octet-stream');
+      return res.end(buffer);
+    } catch {
+      return res.status(404).json({ error: 'Not found' });
+    }
+  }
+
   res.sendFile(path.join(paymentProofsDir, req.params.filename), (err) => {
     if (err && !res.headersSent) res.status(404).json({ error: 'Not found' });
   });
@@ -346,14 +362,35 @@ export async function servePaymentProof(req, res) {
 
 export async function getOrdersByUser(req, res) {
   const { userId } = req.params;
-  const [orders] = await pool.query('SELECT * FROM orders WHERE business_id = ? AND user_id = ? ORDER BY created_at DESC', [req.business.id, userId]);
+  const { page, limit, offset } = parsePagination(req, 20);
+  const [[{ total }]] = await pool.query('SELECT COUNT(*) AS total FROM orders WHERE business_id = ? AND user_id = ?', [req.business.id, userId]);
+  const [orders] = await pool.query(
+    'SELECT * FROM orders WHERE business_id = ? AND user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?',
+    [req.business.id, userId, limit, offset]
+  );
   const courierSettings = await getCourierSettings(req.business.id);
-  for (const order of orders) {
-    const [items] = await pool.query('SELECT * FROM order_items WHERE order_id = ?', [order.id]);
-    order.items = items;
-    order.tracking_url = buildTrackingUrl(order.tracking_number, courierSettings.tracking_url_template);
+
+  // One query for every order's items instead of one query per order — a customer with a long
+  // order history used to turn this single request into N+1 sequential round trips, each holding
+  // a connection out of the pool.
+  if (orders.length > 0) {
+    const orderIds = orders.map((o) => o.id);
+    const [items] = await pool.query(
+      `SELECT * FROM order_items WHERE order_id IN (${orderIds.map(() => '?').join(',')})`,
+      orderIds
+    );
+    const itemsByOrderId = new Map();
+    for (const item of items) {
+      if (!itemsByOrderId.has(item.order_id)) itemsByOrderId.set(item.order_id, []);
+      itemsByOrderId.get(item.order_id).push(item);
+    }
+    for (const order of orders) {
+      order.items = itemsByOrderId.get(order.id) || [];
+      order.tracking_url = buildTrackingUrl(order.tracking_number, courierSettings.tracking_url_template);
+    }
   }
-  res.json(orders);
+
+  res.json(buildPaginatedResponse('orders', orders, total, page, limit));
 }
 
 // A payment_reference reused across more than one order is a red flag for manual transfer

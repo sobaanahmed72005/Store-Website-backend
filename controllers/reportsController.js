@@ -1,4 +1,5 @@
 import pool from '../config/db.js';
+import { clampLimit } from '../utils/pagination.js';
 
 const REVENUE_STATUSES = "status NOT IN ('cancelled', 'returned')";
 
@@ -93,7 +94,7 @@ export async function getRevenueSummary(req, res) {
 
 export async function getTopProducts(req, res) {
   const businessId = req.business.id;
-  const limit = Math.min(Math.max(Number(req.query.limit) || 10, 1), 50);
+  const limit = clampLimit(req, 10);
   const orderCol = req.query.by === 'quantity' ? 'totalQuantity' : 'totalRevenue';
   const [rows] = await pool.query(
     `SELECT oi.product_ref, oi.product_name,
@@ -112,7 +113,7 @@ export async function getTopProducts(req, res) {
 
 export async function getBottomProducts(req, res) {
   const businessId = req.business.id;
-  const limit = Math.min(Math.max(Number(req.query.limit) || 10, 1), 50);
+  const limit = clampLimit(req, 10);
   const [rows] = await pool.query(
     `SELECT p.id, p.name,
             COALESCE(SUM(CASE WHEN o.status NOT IN ('cancelled', 'returned') THEN oi.quantity END), 0) AS totalQuantity,
@@ -131,7 +132,7 @@ export async function getBottomProducts(req, res) {
 
 export async function getSalesByCity(req, res) {
   const businessId = req.business.id;
-  const limit = Math.min(Math.max(Number(req.query.limit) || 10, 1), 50);
+  const limit = clampLimit(req, 10);
   const [rows] = await pool.query(
     `SELECT COALESCE(NULLIF(TRIM(shipping_city), ''), 'Unknown') AS city,
             COALESCE(SUM(total_amount), 0) AS revenue,

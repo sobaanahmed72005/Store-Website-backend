@@ -37,6 +37,11 @@ describe('auth', () => {
       const res = await request.post('/api/auth/register').send({ email: uniqueEmail('missing') });
       assert.equal(res.status, 400);
     });
+
+    it('rejects a password shorter than 8 characters', async () => {
+      const res = await request.post('/api/auth/register').send({ name: 'Test User', email: uniqueEmail('shortpw'), password: 'short1' });
+      assert.equal(res.status, 400);
+    });
   });
 
   describe('POST /api/auth/login', () => {
@@ -183,6 +188,21 @@ describe('auth', () => {
       const me = await agent.get('/api/auth/me');
       assert.equal(me.status, 200);
       assert.equal(me.body.user.email, email);
+    });
+
+    it('tolerates two concurrent refreshes with the same not-yet-rotated cookie', async () => {
+      // Refresh now rotates the session id each call (see docs/AUDIT.md) — a page firing several
+      // API calls in parallel right as the access token expires can end up sending this same,
+      // still-valid-at-the-time refresh cookie on more than one request before either response's
+      // Set-Cookie reaches the browser. Both must still succeed; the second one must not be
+      // wrongly treated as reuse of an already-rotated (and therefore revoked) session.
+      const agent = newAgent();
+      const email = uniqueEmail('refresh-race');
+      await agent.post('/api/auth/register').send({ name: 'Refresh Race Test', email, password: PASSWORD });
+
+      const [first, second] = await Promise.all([agent.post('/api/auth/refresh'), agent.post('/api/auth/refresh')]);
+      assert.equal(first.status, 200);
+      assert.equal(second.status, 200);
     });
   });
 

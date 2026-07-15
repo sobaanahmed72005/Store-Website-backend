@@ -1,11 +1,35 @@
 import jwt from 'jsonwebtoken';
 import { AUTH_COOKIE } from '../utils/authCookies.js';
-import { JWT_SECRET } from '../config/env.js';
+import { JWT_SECRET, FRONTEND_URL } from '../config/env.js';
 import { isSessionRevoked } from '../utils/sessionRevocation.js';
+
+const FRONTEND_ORIGIN = new URL(FRONTEND_URL);
+
+// CORS in app.js already blocks a cross-origin browser from reading the response to a
+// credentialed fetch() — but that's the only thing standing between this API and CSRF today
+// (there's no separate CSRF token, and it's not a deliberate design as much as an accident of the
+// current body-parser configuration; see docs/AUDIT.md). A cookie-carrying request can still be
+// *sent* cross-site (e.g. a classic HTML form submit) even when the response can't be read, so
+// this checks the request actually claims to originate from the frontend before trusting the
+// cookie on it, as a second, explicit layer rather than relying on that being incidentally true.
+// Only enforced when the browser actually sends Origin/Referer — same-origin non-browser clients
+// (server-to-server, curl) send neither, so this doesn't apply to them.
+function hasUntrustedOrigin(req) {
+  const origin = req.headers.origin || req.headers.referer;
+  if (!origin) return false;
+  try {
+    const url = new URL(origin);
+    if (url.protocol !== FRONTEND_ORIGIN.protocol || url.port !== FRONTEND_ORIGIN.port) return true;
+    return url.hostname !== FRONTEND_ORIGIN.hostname && !url.hostname.endsWith(`.${FRONTEND_ORIGIN.hostname}`);
+  } catch {
+    return true;
+  }
+}
 
 export async function requireAuth(req, res, next) {
   const token = req.cookies?.[AUTH_COOKIE];
   if (!token) return res.status(401).json({ error: 'Authentication required' });
+  if (hasUntrustedOrigin(req)) return res.status(403).json({ error: 'Request origin not allowed' });
 
   try {
     const payload = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });

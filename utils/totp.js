@@ -6,14 +6,18 @@ export function generateTotpSecret() {
   return generateSecret();
 }
 
-// Tolerates 1 step (30s) of clock drift on either side of the server's clock.
-export async function verifyTotpToken(secret, token) {
-  if (!secret || !token) return false;
+// Tolerates 1 step (30s) of clock drift on either side of the server's clock. `afterTimeStep`
+// (when the caller has one on file) rejects a code that already matched at or before that step —
+// closing the replay window on an otherwise-valid captured code, since a raw 6-digit code alone
+// carries no information about whether it's already been used. Callers persist the returned
+// `timeStep` after a successful verification so the *next* call can pass it back in.
+export async function verifyTotpToken(secret, token, afterTimeStep) {
+  if (!secret || !token) return { valid: false };
   try {
-    const result = await verify({ secret, token: String(token).trim(), epochTolerance: 1 });
-    return Boolean(result?.valid);
+    const result = await verify({ secret, token: String(token).trim(), epochTolerance: 1, afterTimeStep });
+    return result?.valid ? { valid: true, timeStep: result.timeStep } : { valid: false };
   } catch {
-    return false;
+    return { valid: false };
   }
 }
 

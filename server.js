@@ -5,7 +5,16 @@ import pool from './config/db.js';
 import { sendReviewReminders } from './utils/reviewReminder.js';
 import { syncLeopardsTracking } from './utils/leopardsSync.js';
 import { pruneOldSessions } from './utils/sessions.js';
+import { withDistributedLock } from './utils/distributedLock.js';
 import { PORT } from './config/env.js';
+
+// Wrapped in a DB-backed lock (see utils/distributedLock.js) so that if this app is ever scaled
+// to more than one instance, only one of them actually runs a given job on each tick instead of
+// every instance firing it independently — the concrete failure otherwise being e.g. a customer
+// getting the same review-reminder email once per running instance.
+const runSendReviewReminders = () => withDistributedLock('job:sendReviewReminders', sendReviewReminders);
+const runSyncLeopardsTracking = () => withDistributedLock('job:syncLeopardsTracking', syncLeopardsTracking);
+const runPruneOldSessions = () => withDistributedLock('job:pruneOldSessions', pruneOldSessions);
 
 // process.exit() below is synchronous and immediate — without flushing first, Sentry's async
 // network send for this exact event (the one telling us the process is about to die) would very
@@ -28,14 +37,14 @@ const server = app.listen(PORT, () => {
 });
 
 const timeouts = [
-  setTimeout(sendReviewReminders, 10_000),
-  setTimeout(syncLeopardsTracking, 20_000),
-  setTimeout(pruneOldSessions, 30_000),
+  setTimeout(runSendReviewReminders, 10_000),
+  setTimeout(runSyncLeopardsTracking, 20_000),
+  setTimeout(runPruneOldSessions, 30_000),
 ];
 const intervals = [
-  setInterval(sendReviewReminders, 60 * 60 * 1000),
-  setInterval(syncLeopardsTracking, 30 * 60 * 1000),
-  setInterval(pruneOldSessions, 24 * 60 * 60 * 1000),
+  setInterval(runSendReviewReminders, 60 * 60 * 1000),
+  setInterval(runSyncLeopardsTracking, 30 * 60 * 1000),
+  setInterval(runPruneOldSessions, 24 * 60 * 60 * 1000),
 ];
 
 // A deploy sends SIGTERM and expects the process to exit on its own shortly after — without

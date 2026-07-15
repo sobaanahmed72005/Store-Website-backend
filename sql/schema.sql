@@ -56,7 +56,13 @@ CREATE TABLE IF NOT EXISTS products (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY business_id_slug (business_id, slug),
   FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE,
-  FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
+  FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL,
+  -- Covers the storefront's two hottest queries (getProducts in productsController.js): the
+  -- plain "newest first" listing, and the same filtered by category — both filter on business_id
+  -- (+ optionally category_id) and sort by created_at. Without this, both degrade into a
+  -- filesort over an ever-growing per-tenant scan as the catalog grows past a few thousand SKUs.
+  KEY idx_products_business_created (business_id, created_at),
+  KEY idx_products_business_category_created (business_id, category_id, created_at)
 );
 
 CREATE TABLE IF NOT EXISTS users (
@@ -78,6 +84,9 @@ CREATE TABLE IF NOT EXISTS users (
   totp_secret VARCHAR(255) NULL,
   totp_enabled TINYINT(1) NOT NULL DEFAULT 0,
   totp_recovery_codes TEXT NULL,
+  -- Last otplib timeStep a code was accepted at (see sql/migrate-totp-replay-guard.js) — closes
+  -- the replay window on an otherwise-valid captured code within its ~90s tolerance.
+  totp_last_step BIGINT NULL,
   -- Superseded by the `sessions` table below (per-device revocation). Left in place,
   -- unused, rather than dropped — harmless, and avoids a destructive migration.
   token_version INT NOT NULL DEFAULT 0,
@@ -146,7 +155,12 @@ CREATE TABLE IF NOT EXISTS orders (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-  KEY idx_orders_business_status_created (business_id, status, created_at)
+  KEY idx_orders_business_status_created (business_id, status, created_at),
+  -- Support the admin order list's duplicate-reference/duplicate-proof-image correlated
+  -- subqueries (see getAllOrders/getOrderById in ordersController.js) — without these, every row
+  -- on the page triggers a full table scan of the business's orders, twice.
+  KEY idx_orders_business_reference (business_id, payment_reference),
+  KEY idx_orders_business_proof_image (business_id, payment_proof_image)
 );
 
 CREATE TABLE IF NOT EXISTS wishlist_items (
