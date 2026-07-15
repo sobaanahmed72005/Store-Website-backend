@@ -55,6 +55,7 @@ import {
   adminList as adminListSubscribers,
   adminDelete as adminDeleteSubscriber,
   adminSend as adminSendNewsletter,
+  getNewSubscribers,
 } from '../controllers/newsletterController.js';
 import { adminGet as adminGetCourier, adminUpdate as adminUpdateCourier, adminTestConnection as adminTestCourierConnection } from '../controllers/courierController.js';
 import {
@@ -128,6 +129,7 @@ router.patch('/discount-codes/:id', adminUpdate);
 router.delete('/discount-codes/:id', adminDelete);
 
 router.get('/newsletter', adminListSubscribers);
+router.get('/newsletter/new', getNewSubscribers);
 router.delete('/newsletter/:id', adminDeleteSubscriber);
 router.post('/newsletter/send', adminSendNewsletter);
 
