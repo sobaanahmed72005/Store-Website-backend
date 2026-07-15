@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS users (
   role ENUM('customer','admin') NOT NULL DEFAULT 'customer',
   email_verified TINYINT(1) NOT NULL DEFAULT 0,
   verification_token VARCHAR(255),
+  verification_token_expires DATETIME NULL,
   saved_phone VARCHAR(30) NULL,
   saved_address VARCHAR(255) NULL,
   saved_city VARCHAR(100) NULL,

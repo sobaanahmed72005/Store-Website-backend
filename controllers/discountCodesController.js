@@ -1,5 +1,6 @@
 import pool from '../config/db.js';
 import { logAudit } from '../utils/auditLog.js';
+import { parsePagination, buildPaginatedResponse } from '../utils/pagination.js';
 
 export async function resolveDiscount({ businessId, userId, code, subtotal, queryRunner = pool }) {
   const normalizedCode = String(code || '').trim().toUpperCase();
@@ -70,13 +71,22 @@ export async function validateCode(req, res) {
       discount_amount: discountAmount,
     });
   } catch (err) {
-    res.status(err.status || 500).json({ error: err.message });
+    // resolveDiscount only ever sets err.status on the expected, hand-written validation
+    // failures above — anything without a status (e.g. a DB connection error) isn't meant for
+    // the client, so let it fall through to the global error handler instead of echoing it here.
+    if (!err.status) throw err;
+    res.status(err.status).json({ error: err.message });
   }
 }
 
 export async function adminList(req, res) {
-  const [rows] = await pool.query('SELECT * FROM discount_codes WHERE business_id = ? ORDER BY created_at DESC', [req.business.id]);
-  res.json(rows);
+  const { page, limit, offset } = parsePagination(req, 50);
+  const [[{ total }]] = await pool.query('SELECT COUNT(*) AS total FROM discount_codes WHERE business_id = ?', [req.business.id]);
+  const [rows] = await pool.query(
+    'SELECT * FROM discount_codes WHERE business_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?',
+    [req.business.id, limit, offset]
+  );
+  res.json(buildPaginatedResponse('discountCodes', rows, total, page, limit));
 }
 
 export async function adminCreate(req, res) {

@@ -1,11 +1,12 @@
 import pool from '../config/db.js';
 import { sendMail } from '../utils/mailer.js';
-import { wrapEmail, emailGreeting, emailParagraph, emailButton, emailDivider } from '../utils/emailTemplate.js';
+import { wrapEmail, emailGreeting, emailParagraph, emailButton, emailDivider, escapeHtml } from '../utils/emailTemplate.js';
 import { getEmailTemplate, applyPlaceholders } from '../utils/emailLoader.js';
 import { verifyUnsubscribeToken, buildUnsubscribeUrl } from '../utils/unsubscribeToken.js';
 import { buildStoreUrl } from '../utils/storeUrl.js';
 import { getSiteName } from './contentController.js';
 import { EMAIL_PATTERN } from '../utils/validation.js';
+import { parsePagination, buildPaginatedResponse } from '../utils/pagination.js';
 
 async function buildWelcomeEmail(business, email) {
   const [tpl, storeName] = await Promise.all([
@@ -89,11 +90,19 @@ export async function unsubscribe(req, res) {
 }
 
 export async function adminList(req, res) {
-  const [rows] = await pool.query(
-    'SELECT id, email, unsubscribed_at, created_at FROM newsletter_subscribers WHERE business_id = ? ORDER BY created_at DESC',
+  const { page, limit, offset } = parsePagination(req, 50);
+  const [[{ total, activeTotal }]] = await pool.query(
+    `SELECT COUNT(*) AS total, SUM(unsubscribed_at IS NULL) AS activeTotal
+     FROM newsletter_subscribers WHERE business_id = ?`,
     [req.business.id]
   );
-  res.json(rows);
+  const [rows] = await pool.query(
+    'SELECT id, email, unsubscribed_at, created_at FROM newsletter_subscribers WHERE business_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?',
+    [req.business.id, limit, offset]
+  );
+  // activeTotal is the real count adminSend below actually emails — the current page's table
+  // rows are just what's displayed, and shouldn't be confused with how many will receive a send.
+  res.json({ ...buildPaginatedResponse('subscribers', rows, total, page, limit), activeTotal: Number(activeTotal) });
 }
 
 export async function adminDelete(req, res) {
@@ -122,7 +131,7 @@ export async function adminSend(req, res) {
     .split(/\n\s*\n+/)
     .map((block) => block.trim())
     .filter(Boolean)
-    .map((block) => emailParagraph(block.replace(/\n/g, '<br/>')))
+    .map((block) => emailParagraph(escapeHtml(block).replace(/\n/g, '<br/>')))
     .join('');
   const body = paragraphs + emailDivider() +
     emailParagraph("<span style='color:#888;font-size:13px;'>You are receiving this because you subscribed to our newsletter.</span>");

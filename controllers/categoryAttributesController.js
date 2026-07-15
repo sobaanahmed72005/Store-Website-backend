@@ -55,7 +55,7 @@ export async function renameAttribute(req, res) {
   if (!attribute) return res.status(404).json({ error: 'Filter not found' });
 
   try {
-    await pool.query('UPDATE category_attributes SET name = ? WHERE id = ?', [name.trim(), attrId]);
+    await pool.query('UPDATE category_attributes SET name = ? WHERE id = ? AND business_id = ?', [name.trim(), attrId, req.business.id]);
     res.json({ message: 'Filter updated' });
   } catch (err) {
     if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'That filter name already exists on this category' });
@@ -68,7 +68,7 @@ export async function deleteAttribute(req, res) {
   const attribute = await assertAttributeOwnership(attrId, req.business.id);
   if (!attribute) return res.status(404).json({ error: 'Filter not found' });
 
-  await pool.query('DELETE FROM category_attributes WHERE id = ?', [attrId]);
+  await pool.query('DELETE FROM category_attributes WHERE id = ? AND business_id = ?', [attrId, req.business.id]);
   res.json({ message: 'Filter deleted' });
 }
 
@@ -105,7 +105,11 @@ export async function renameOption(req, res) {
   if (rows.length === 0) return res.status(404).json({ error: 'Option not found' });
 
   try {
-    await pool.query('UPDATE category_attribute_options SET value = ? WHERE id = ?', [value.trim(), optId]);
+    await pool.query(
+      `UPDATE category_attribute_options SET value = ?
+       WHERE id = ? AND attribute_id IN (SELECT id FROM category_attributes WHERE business_id = ?)`,
+      [value.trim(), optId, req.business.id]
+    );
     res.json({ message: 'Option updated' });
   } catch (err) {
     if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'That option already exists' });
@@ -123,6 +127,10 @@ export async function deleteOption(req, res) {
   );
   if (rows.length === 0) return res.status(404).json({ error: 'Option not found' });
 
-  await pool.query('DELETE FROM category_attribute_options WHERE id = ?', [optId]);
+  await pool.query(
+    `DELETE FROM category_attribute_options
+     WHERE id = ? AND attribute_id IN (SELECT id FROM category_attributes WHERE business_id = ?)`,
+    [optId, req.business.id]
+  );
   res.json({ message: 'Option deleted' });
 }

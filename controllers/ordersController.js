@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import pool from '../config/db.js';
+import { isDbError } from '../utils/dbErrors.js';
 import { sendMail } from '../utils/mailer.js';
 import { wrapEmail, emailGreeting, emailButton, emailParagraph, emailOrderTable, emailStatusBadge, emailDivider, emailInvoiceBlock, escapeHtml } from '../utils/emailTemplate.js';
 import { resolveDiscount } from './discountCodesController.js';
@@ -224,7 +225,10 @@ export async function createOrder(req, res) {
         resolvedDiscount = result.discount;
       } catch (err) {
         await connection.rollback();
-        return res.status(err.status || 400).json({ error: err.message });
+        // Same reasoning as validateCode in discountCodesController.js: resolveDiscount only
+        // sets err.status on its own hand-written validation failures.
+        if (!err.status) throw err;
+        return res.status(err.status).json({ error: err.message });
       }
     }
 
@@ -430,6 +434,40 @@ export const STATUS_TRANSITIONS = {
   pending_payment:   [],
 };
 
+// Both terminal "give the stock back" transitions — cancelling before fulfillment, or a
+// post-delivery return. Neither is reachable from the other in STATUS_TRANSITIONS, so this only
+// ever fires once per order.
+const STOCK_RESTORING_STATUSES = ['cancelled', 'returned'];
+
+// Mirrors createOrder's stock decrement in reverse. Must run on the same connection/transaction
+// as the status-transition UPDATE that calls it, so a crash between the two can't leave stock
+// restored without the status actually changing (or vice versa).
+async function restoreOrderStock(connection, businessId, orderId) {
+  const [items] = await connection.query(
+    'SELECT product_ref, variant_id, quantity FROM order_items WHERE order_id = ?',
+    [orderId]
+  );
+  for (const item of items) {
+    if (item.variant_id != null) {
+      await connection.query(
+        'UPDATE product_variants SET stock = stock + ? WHERE id = ? AND business_id = ?',
+        [item.quantity, item.variant_id, businessId]
+      );
+      // products.stock mirrors the sum of variant stocks, same as the decrement side in
+      // createOrder — keep it in sync here rather than leaving it stale.
+      await connection.query(
+        'UPDATE products SET stock = stock + ? WHERE id = ? AND business_id = ?',
+        [item.quantity, item.product_ref, businessId]
+      );
+    } else {
+      await connection.query(
+        'UPDATE products SET stock = stock + ? WHERE id = ? AND business_id = ?',
+        [item.quantity, item.product_ref, businessId]
+      );
+    }
+  }
+}
+
 function buildStatusEmail(status, id, order, tpl = null, storeName) {
   const name = order.shipping_name || order.customer_name || 'there';
   const storeUrl = FRONTEND_URL;
@@ -584,18 +622,39 @@ export async function updateOrderStatus(req, res) {
   if (!allowed.includes(status)) return res.status(400).json({ error: `Cannot move from ${order.status} to ${status}` });
 
   const deliveredSet = status === 'delivered' ? ', delivered_at = NOW()' : '';
+  const restoresStock = STOCK_RESTORING_STATUSES.includes(status);
+
   // Claim the transition atomically *before* booking a real courier shipment below. Booking
   // first (the old order) meant two concurrent requests could both pass the checks above and
   // both book a real Leopards shipment; only one would win this update, leaving the loser's
   // booking orphaned (real money spent, no record of it anywhere). Guarding on the status we
   // read above also means two admins acting on the same order at the same instant can't
   // silently overwrite each other — the loser gets a clear conflict instead of a lost update.
-  const [claimResult] = await pool.query(
-    `UPDATE orders SET status = ?${deliveredSet} WHERE id = ? AND business_id = ? AND status = ?`,
-    [status, req.params.id, req.business.id, order.status],
-  );
-  if (claimResult.affectedRows === 0) {
-    return res.status(409).json({ error: 'This order was updated by someone else. Please refresh and try again.' });
+  //
+  // Cancelling/returning additionally restores stock, on the same connection so both changes
+  // commit or roll back together.
+  const connection = restoresStock ? await pool.getConnection() : pool;
+  try {
+    if (restoresStock) await connection.beginTransaction();
+
+    const [claimResult] = await connection.query(
+      `UPDATE orders SET status = ?${deliveredSet} WHERE id = ? AND business_id = ? AND status = ?`,
+      [status, req.params.id, req.business.id, order.status],
+    );
+    if (claimResult.affectedRows === 0) {
+      if (restoresStock) await connection.rollback();
+      return res.status(409).json({ error: 'This order was updated by someone else. Please refresh and try again.' });
+    }
+
+    if (restoresStock) {
+      await restoreOrderStock(connection, req.business.id, req.params.id);
+      await connection.commit();
+    }
+  } catch (err) {
+    if (restoresStock) await connection.rollback();
+    throw err;
+  } finally {
+    if (restoresStock) connection.release();
   }
 
   // Auto-book with Leopards the moment an order is marked Shipped, unless the
@@ -639,14 +698,38 @@ export async function applySyncedOrderStatus(businessId, orderId, currentStatus,
   if (!allowed.includes(newStatus)) return false;
 
   const deliveredSet = newStatus === 'delivered' ? ', delivered_at = NOW()' : '';
-  // Guarded on currentStatus, same as updateOrderStatus's admin-driven path — without it, this
-  // background sync could silently overwrite a status an admin already changed in the meantime
-  // (e.g. flip a just-cancelled order back to "delivered" and email the customer accordingly).
-  const [result] = await pool.query(
-    `UPDATE orders SET status = ?${deliveredSet} WHERE id = ? AND business_id = ? AND status = ?`,
-    [newStatus, orderId, businessId, currentStatus]
-  );
-  if (result.affectedRows === 0) return false;
+  // Leopards can report a package as returned-to-shipper (mapLeopardsStatus), so this background
+  // path needs the same stock restoration as the admin-driven update above.
+  const restoresStock = STOCK_RESTORING_STATUSES.includes(newStatus);
+
+  const connection = restoresStock ? await pool.getConnection() : pool;
+  let applied = false;
+  try {
+    if (restoresStock) await connection.beginTransaction();
+
+    // Guarded on currentStatus, same as updateOrderStatus's admin-driven path — without it, this
+    // background sync could silently overwrite a status an admin already changed in the meantime
+    // (e.g. flip a just-cancelled order back to "delivered" and email the customer accordingly).
+    const [result] = await connection.query(
+      `UPDATE orders SET status = ?${deliveredSet} WHERE id = ? AND business_id = ? AND status = ?`,
+      [newStatus, orderId, businessId, currentStatus]
+    );
+    applied = result.affectedRows > 0;
+
+    if (applied && restoresStock) {
+      await restoreOrderStock(connection, businessId, orderId);
+      await connection.commit();
+    } else if (restoresStock) {
+      await connection.rollback();
+    }
+  } catch (err) {
+    if (restoresStock) await connection.rollback();
+    throw err;
+  } finally {
+    if (restoresStock) connection.release();
+  }
+
+  if (!applied) return false;
   await sendStatusChangeEmail(businessId, orderId, newStatus);
   return true;
 }
@@ -665,6 +748,11 @@ export async function bookOrderCourier(req, res) {
     );
     res.json({ message: 'Booked with Leopards', courier_name: 'Leopards Courier', tracking_number: booked.trackNumber });
   } catch (err) {
+    // bookLeopardsPacket's own throws are always hand-written, meant-for-the-client messages
+    // (settings misconfigured, city not recognized, Leopards rejected the booking) — but a raw
+    // DB error surfacing here (e.g. the settings lookup losing its connection) isn't, so let
+    // that fall through to the global handler instead of echoing it as a 400.
+    if (isDbError(err)) throw err;
     res.status(400).json({ error: err.message });
   }
 }

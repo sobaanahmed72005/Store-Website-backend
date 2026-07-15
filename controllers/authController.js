@@ -68,7 +68,7 @@ async function buildVerificationEmail(name, token, businessId) {
     emailButton('Verify My Email', link) +
     emailDivider() +
     emailParagraph(`Or copy and paste this link into your browser:<br/><a href="${link}" style="color:#102b53;font-size:13px;">${link}</a>`) +
-    emailParagraph("<span style='color:#888;font-size:13px;'>If you didn't create an account, you can safely ignore this email.</span>");
+    emailParagraph("<span style='color:#888;font-size:13px;'>This link expires in 24 hours. If you didn't create an account, you can safely ignore this email.</span>");
   return {
     subject,
     html: wrapEmail(body, { storeName, preheader: 'One click to activate your account.' }),
@@ -109,9 +109,10 @@ export async function register(req, res) {
 
   const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
   const verificationToken = crypto.randomBytes(32).toString('hex');
+  const verificationTokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
   const [result] = await pool.query(
-    'INSERT INTO users (business_id, name, email, password_hash, phone, verification_token) VALUES (?, ?, ?, ?, ?, ?)',
-    [req.business.id, name, email, passwordHash, phone ?? null, verificationToken]
+    'INSERT INTO users (business_id, name, email, password_hash, phone, verification_token, verification_token_expires) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    [req.business.id, name, email, passwordHash, phone ?? null, verificationToken, verificationTokenExpires]
   );
   const user = { id: result.insertId, name, email, role: 'customer', email_verified: 0 };
   const sessionId = await createSession(user.id);
@@ -410,10 +411,13 @@ export async function verifyEmail(req, res) {
   const { token } = req.query;
   if (!token) return res.status(400).json({ error: 'Missing token' });
 
-  const [rows] = await pool.query('SELECT id FROM users WHERE business_id = ? AND verification_token = ?', [req.business.id, token]);
+  const [rows] = await pool.query(
+    'SELECT id FROM users WHERE business_id = ? AND verification_token = ? AND verification_token_expires > NOW()',
+    [req.business.id, token]
+  );
   if (rows.length === 0) return res.status(400).json({ error: 'Invalid or expired verification link' });
 
-  await pool.query('UPDATE users SET email_verified = 1, verification_token = NULL WHERE id = ?', [rows[0].id]);
+  await pool.query('UPDATE users SET email_verified = 1, verification_token = NULL, verification_token_expires = NULL WHERE id = ?', [rows[0].id]);
   res.json({ message: 'Email verified' });
 }
 
@@ -424,7 +428,11 @@ export async function resendVerification(req, res) {
   if (user.email_verified) return res.status(400).json({ error: 'Email already verified' });
 
   const verificationToken = crypto.randomBytes(32).toString('hex');
-  await pool.query('UPDATE users SET verification_token = ? WHERE id = ?', [verificationToken, req.user.id]);
+  const verificationTokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  await pool.query(
+    'UPDATE users SET verification_token = ?, verification_token_expires = ? WHERE id = ?',
+    [verificationToken, verificationTokenExpires, req.user.id]
+  );
 
   const { subject, html } = await buildVerificationEmail(user.name, verificationToken, req.business.id);
   await sendMail({ to: user.email, subject, html });

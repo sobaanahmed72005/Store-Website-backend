@@ -8,6 +8,7 @@ import { fileURLToPath } from 'url';
 
 import { logger } from './utils/logger.js';
 import { Sentry } from './utils/sentry.js';
+import { isDbError } from './utils/dbErrors.js';
 import categoriesRouter from './routes/categories.js';
 import productsRouter from './routes/products.js';
 import authRouter from './routes/auth.js';
@@ -133,12 +134,14 @@ app.use((err, req, res, next) => {
     Sentry.captureException(err);
   }
   // mysql2 sets sqlMessage/sqlState on raw DB-driver errors, which can echo back schema/query
-  // details — mask those in production. Every other thrown error in this codebase (validation,
-  // CORS, integration failures like "Leopards is not enabled") is a hand-written message that's
-  // always meant to reach the client, so it's left alone. Defaults to masking (not showing) when
-  // NODE_ENV is simply unset, rather than assuming a platform sets it correctly.
-  const isDbError = Boolean(err.sqlMessage || err.sqlState);
-  const showDetail = !isDbError || NODE_ENV === 'development';
+  // details — mask those in production. Connection-level failures (pool can't reach the DB at
+  // all) don't set those fields but carry a Node `err.code` whose message embeds the host/port
+  // (e.g. "connect ECONNREFUSED 127.0.0.1:3306"), so those are masked too. Every other thrown
+  // error in this codebase (validation, CORS, integration failures like "Leopards is not
+  // enabled") is a hand-written message that's always meant to reach the client, so it's left
+  // alone. Defaults to masking (not showing) when NODE_ENV is simply unset, rather than assuming
+  // a platform sets it correctly.
+  const showDetail = !isDbError(err) || NODE_ENV === 'development';
   res.status(err.status || 500).json({ error: showDetail ? (err.message || 'Internal server error') : 'Internal server error' });
 });
 

@@ -1,6 +1,6 @@
 import pool from '../config/db.js';
 import { sendMail } from '../utils/mailer.js';
-import { wrapEmail, emailParagraph, emailDivider } from '../utils/emailTemplate.js';
+import { wrapEmail, emailParagraph, emailDivider, escapeHtml } from '../utils/emailTemplate.js';
 import { buildUnsubscribeUrl } from '../utils/unsubscribeToken.js';
 import { getSiteName } from './contentController.js';
 import { BACKEND_URL } from '../config/env.js';
@@ -15,14 +15,14 @@ function buildPromoHtml({ subject, message, poster_image }, unsubscribeUrl, stor
     ? `<img src="${imageUrl}" alt="" style="display:block;width:100%;max-width:600px;height:auto;border-radius:8px;margin:0 0 28px;" />`
     : '';
 
-  const headlineBlock = `<h2 style="margin:0 0 20px;font-size:22px;font-weight:700;color:#102b53;line-height:1.3;">${subject}</h2>`;
+  const headlineBlock = `<h2 style="margin:0 0 20px;font-size:22px;font-weight:700;color:#102b53;line-height:1.3;">${escapeHtml(subject)}</h2>`;
 
   const paragraphs = message
     .trim()
     .split(/\n\s*\n+/)
     .map((block) => block.trim())
     .filter(Boolean)
-    .map((block) => emailParagraph(block.replace(/\n/g, '<br/>')))
+    .map((block) => emailParagraph(escapeHtml(block).replace(/\n/g, '<br/>')))
     .join('');
 
   const body =

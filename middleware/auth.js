@@ -7,7 +7,7 @@ export async function requireAuth(req, res, next) {
   if (!token) return res.status(401).json({ error: 'Authentication required' });
 
   try {
-    const payload = jwt.verify(token, JWT_SECRET);
+    const payload = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
     if (!req.business || payload.business_id !== req.business.id) {
       return res.status(401).json({ error: 'Invalid token for this store' });
     }

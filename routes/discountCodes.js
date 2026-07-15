@@ -1,9 +1,10 @@
 import express from 'express';
 import { requireAuth } from '../middleware/auth.js';
+import { discountCodeRateLimit } from '../middleware/discountCodeRateLimit.js';
 import { validateCode } from '../controllers/discountCodesController.js';
 
 const router = express.Router();
 
-router.post('/validate', requireAuth, validateCode);
+router.post('/validate', requireAuth, discountCodeRateLimit, validateCode);
 
 export default router;

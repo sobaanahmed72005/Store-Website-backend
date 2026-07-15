@@ -1,6 +1,7 @@
 import pool from '../config/db.js';
 import { encryptSecret, decryptSecret } from '../utils/crypto.js';
 import { logAudit } from '../utils/auditLog.js';
+import { isDbError } from '../utils/dbErrors.js';
 
 const DEFAULTS = {
   provider: 'Leopards Courier',
@@ -158,6 +159,9 @@ export async function adminTestConnection(req, res) {
       sandbox: settings.sandbox,
     });
   } catch (err) {
+    // getCourierSettings/getLeopardsCities' own failures are hand-written messages meant for
+    // direct display; a raw DB error isn't, so let it fall through to the global handler.
+    if (isDbError(err)) throw err;
     res.status(400).json({ error: err.message });
   }
 }
