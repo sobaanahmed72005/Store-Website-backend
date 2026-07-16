@@ -37,15 +37,20 @@ function formatLastmod(date) {
   return new Date(date).toISOString().slice(0, 10);
 }
 
+// The sitemap protocol itself caps a single file at 50,000 URLs — bounding the query at that same
+// number keeps this from becoming an unbounded full-table scan as the catalog grows, and ORDER BY
+// keeps the most recently updated products in the (extremely unlikely) truncated set.
+const SITEMAP_URL_LIMIT = 50000;
+
 export async function getSitemap(req, res) {
   const origin = buildStoreUrl(req.business.slug);
   const [categories] = await pool.query(
-    'SELECT slug, updated_at, created_at FROM categories WHERE business_id = ?',
-    [req.business.id]
+    'SELECT slug, updated_at, created_at FROM categories WHERE business_id = ? ORDER BY updated_at DESC LIMIT ?',
+    [req.business.id, SITEMAP_URL_LIMIT]
   );
   const [products] = await pool.query(
-    'SELECT slug, updated_at, created_at FROM products WHERE business_id = ?',
-    [req.business.id]
+    'SELECT slug, updated_at, created_at FROM products WHERE business_id = ? ORDER BY updated_at DESC LIMIT ?',
+    [req.business.id, SITEMAP_URL_LIMIT]
   );
 
   const urls = [

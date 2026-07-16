@@ -568,94 +568,124 @@ export async function bulkSale(req, res) {
     return res.status(400).json({ error: 'Invalid scope' });
   }
 
-  const [matchedProducts] = await pool.query(`SELECT id, price FROM products WHERE ${where}`, params);
-  const matchedIds = matchedProducts.map((p) => p.id);
+  // Only ids are resolved up front — the price actually used for discount math is read later,
+  // under FOR UPDATE, inside the same transaction that writes it. Reading price here instead
+  // would let a concurrent product-price edit (or an overlapping bulkSale call) commit in
+  // between this read and the write, silently basing the discount on a price that's already stale.
+  const [idRows] = await pool.query(`SELECT id FROM products WHERE ${where}`, params);
+  const matchedIds = idRows.map((p) => p.id);
   if (matchedIds.length === 0) {
     return res.json({ message: action === 'clear' ? 'Sale cleared' : 'Sale applied', updated: 0 });
   }
 
-  // A product with variants shows a derived "starting from" price/sale badge on the storefront,
-  // not an admin-entered one — writing discount_price only on the base row (as this used to do)
-  // left that badge pointing at a sale price no actual variant honored. Every variant needs its
-  // own discount applied too, with the base row's badge recomputed from the (now discounted)
-  // per-variant prices, the same way create/update product does it.
-  const [variantRows] = await pool.query(
-    `SELECT id, product_id, price FROM product_variants WHERE product_id IN (${matchedIds.map(() => '?').join(',')})`,
-    matchedIds
-  );
-  const variantsByProduct = new Map();
-  for (const v of variantRows) {
-    if (!variantsByProduct.has(v.product_id)) variantsByProduct.set(v.product_id, []);
-    variantsByProduct.get(v.product_id).push(v);
+  if (action === 'clear') {
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      await connection.query(`UPDATE products SET is_on_sale = 0, discount_price = NULL WHERE ${where}`, params);
+      await connection.query(
+        `UPDATE product_variants SET discount_price = NULL WHERE product_id IN (${matchedIds.map(() => '?').join(',')})`,
+        matchedIds
+      );
+      await connection.commit();
+      return res.json({ message: 'Sale cleared', updated: matchedIds.length });
+    } catch (err) {
+      await connection.rollback();
+      throw err;
+    } finally {
+      connection.release();
+    }
+  }
+
+  if (action !== 'apply') return res.status(400).json({ error: 'Invalid action' });
+  if (!discountType || value == null) return res.status(400).json({ error: 'discountType and value are required' });
+
+  let computeDiscount;
+  if (discountType === 'percent') {
+    const pct = Number(value);
+    if (!Number.isFinite(pct) || pct <= 0 || pct >= 100) return res.status(400).json({ error: 'Percentage must be between 0 and 100' });
+    computeDiscount = (price) => Math.round(price * (1 - pct / 100) * 100) / 100;
+  } else if (discountType === 'fixed') {
+    const fixedPrice = Number(value);
+    if (!Number.isFinite(fixedPrice) || fixedPrice <= 0) return res.status(400).json({ error: 'Sale price must be greater than 0' });
+    computeDiscount = (price) => (price > fixedPrice ? fixedPrice : null);
+  } else {
+    return res.status(400).json({ error: 'Invalid discountType' });
   }
 
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
 
-    if (action === 'clear') {
-      await connection.query(`UPDATE products SET is_on_sale = 0, discount_price = NULL WHERE ${where}`, params);
-      if (variantRows.length > 0) {
-        await connection.query(
-          `UPDATE product_variants SET discount_price = NULL WHERE product_id IN (${matchedIds.map(() => '?').join(',')})`,
-          matchedIds
-        );
-      }
-      await connection.commit();
-      return res.json({ message: 'Sale cleared', updated: matchedIds.length });
+    // FOR UPDATE locks these rows for the rest of the transaction — a concurrent updateProduct or
+    // overlapping bulkSale call touching the same rows blocks until this commits, instead of each
+    // computing a discount from a price the other is simultaneously changing.
+    const [products] = await connection.query(`SELECT id, price FROM products WHERE ${where} FOR UPDATE`, params);
+    const [variantRows] = await connection.query(
+      `SELECT id, product_id, price FROM product_variants WHERE product_id IN (${matchedIds.map(() => '?').join(',')}) FOR UPDATE`,
+      matchedIds
+    );
+    const variantsByProduct = new Map();
+    for (const v of variantRows) {
+      if (!variantsByProduct.has(v.product_id)) variantsByProduct.set(v.product_id, []);
+      variantsByProduct.get(v.product_id).push(v);
     }
 
-    if (action !== 'apply') {
-      await connection.rollback();
-      return res.status(400).json({ error: 'Invalid action' });
-    }
-    if (!discountType || value == null) {
-      await connection.rollback();
-      return res.status(400).json({ error: 'discountType and value are required' });
-    }
+    // A product with variants shows a derived "starting from" price/sale badge on the storefront,
+    // not an admin-entered one — writing discount_price only on the base row (as this used to do)
+    // left that badge pointing at a sale price no actual variant honored. Every variant needs its
+    // own discount applied too, with the base row's badge recomputed from the (now discounted)
+    // per-variant prices, the same way create/update product does it.
+    //
+    // Built as one batched CASE-based UPDATE per table rather than one round-trip per row — with
+    // "apply to all products" on a large catalog, N sequential awaited UPDATEs would hold these
+    // FOR UPDATE locks (and the open transaction) open far longer than necessary.
+    const variantCaseSql = [];
+    const variantCaseParams = [];
+    const variantIdsToUpdate = [];
+    const productCaseSql = [];
+    const productCaseParams = [];
+    const productIdsToUpdate = [];
 
-    let computeDiscount;
-    if (discountType === 'percent') {
-      const pct = Number(value);
-      if (!Number.isFinite(pct) || pct <= 0 || pct >= 100) {
-        await connection.rollback();
-        return res.status(400).json({ error: 'Percentage must be between 0 and 100' });
-      }
-      computeDiscount = (price) => Math.round(price * (1 - pct / 100) * 100) / 100;
-    } else if (discountType === 'fixed') {
-      const fixedPrice = Number(value);
-      if (!Number.isFinite(fixedPrice) || fixedPrice <= 0) {
-        await connection.rollback();
-        return res.status(400).json({ error: 'Sale price must be greater than 0' });
-      }
-      computeDiscount = (price) => (price > fixedPrice ? fixedPrice : null);
-    } else {
-      await connection.rollback();
-      return res.status(400).json({ error: 'Invalid discountType' });
-    }
-
-    let updated = 0;
-    for (const product of matchedProducts) {
+    for (const product of products) {
       const variants = variantsByProduct.get(product.id);
       if (variants?.length) {
         const discountedVariants = variants.map((v) => ({ ...v, discount_price: computeDiscount(Number(v.price)) }));
         if (!discountedVariants.some((v) => v.discount_price != null)) continue;
         for (const v of discountedVariants) {
-          await connection.query('UPDATE product_variants SET discount_price = ? WHERE id = ?', [v.discount_price, v.id]);
+          if (v.discount_price == null) continue;
+          variantCaseSql.push('WHEN ? THEN ?');
+          variantCaseParams.push(v.id, v.discount_price);
+          variantIdsToUpdate.push(v.id);
         }
         const effectivePrice = Math.min(...discountedVariants.map(variantEffectivePrice));
-        await connection.query('UPDATE products SET discount_price = ?, is_on_sale = 1 WHERE id = ?', [effectivePrice, product.id]);
-        updated++;
+        productCaseSql.push('WHEN ? THEN ?');
+        productCaseParams.push(product.id, effectivePrice);
+        productIdsToUpdate.push(product.id);
       } else {
         const discountPrice = computeDiscount(Number(product.price));
         if (discountPrice == null) continue;
-        await connection.query('UPDATE products SET discount_price = ?, is_on_sale = 1 WHERE id = ?', [discountPrice, product.id]);
-        updated++;
+        productCaseSql.push('WHEN ? THEN ?');
+        productCaseParams.push(product.id, discountPrice);
+        productIdsToUpdate.push(product.id);
       }
     }
 
+    if (variantIdsToUpdate.length > 0) {
+      await connection.query(
+        `UPDATE product_variants SET discount_price = CASE id ${variantCaseSql.join(' ')} END WHERE id IN (${variantIdsToUpdate.map(() => '?').join(',')})`,
+        [...variantCaseParams, ...variantIdsToUpdate]
+      );
+    }
+    if (productIdsToUpdate.length > 0) {
+      await connection.query(
+        `UPDATE products SET discount_price = CASE id ${productCaseSql.join(' ')} END, is_on_sale = 1 WHERE id IN (${productIdsToUpdate.map(() => '?').join(',')})`,
+        [...productCaseParams, ...productIdsToUpdate]
+      );
+    }
+
     await connection.commit();
-    res.json({ message: 'Sale applied', updated });
+    res.json({ message: 'Sale applied', updated: productIdsToUpdate.length });
   } catch (err) {
     await connection.rollback();
     throw err;
