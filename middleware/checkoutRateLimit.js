@@ -1,12 +1,14 @@
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { NODE_ENV } from '../config/env.js';
 
 // Mounted after requireAuth so it can key on the authenticated user rather than IP — a shared
 // office/NAT IP shouldn't lock out other real customers checking out, but a single account
 // scripting rapid repeat checkouts (draining limited stock, flooding the order/courier email
-// pipeline) should still be stopped. Falls back to req.ip only if req.user is somehow unset.
+// pipeline) should still be stopped. Falls back to req.ip only if req.user is somehow unset —
+// routed through ipKeyGenerator so that fallback normalizes IPv6 addresses to their /64 prefix
+// instead of keying on the full address, which a client could vary to dodge the limit entirely.
 function keyByUser(req) {
-  return req.user?.id ? `u:${req.user.id}` : req.ip;
+  return req.user?.id ? `u:${req.user.id}` : ipKeyGenerator(req.ip);
 }
 
 export const checkoutRateLimit = rateLimit({

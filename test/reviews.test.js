@@ -142,7 +142,7 @@ describe('reviews', () => {
       assert.equal(publicList.body.total, 2);
     });
 
-    it('rejecting a pending review deletes it', async () => {
+    it('rejecting a pending review marks it rejected, hidden from the public list', async () => {
       // already reviewed (approved above), so create a second product to get a fresh pending review to reject
       const [result] = await pool.query(
         "INSERT INTO products (business_id, name, slug, price, stock) VALUES (?, 'Test Review Product 2', ?, 500, 10)",
@@ -159,8 +159,11 @@ describe('reviews', () => {
       const rejectRes = await adminAgent.patch(`/api/admin/reviews/${review.body.id}`).send({ action: 'reject' });
       assert.equal(rejectRes.status, 200);
 
-      const [[gone]] = await pool.query('SELECT id FROM product_reviews WHERE id = ?', [review.body.id]);
-      assert.equal(gone, undefined);
+      const [[stillThere]] = await pool.query('SELECT id, status FROM product_reviews WHERE id = ?', [review.body.id]);
+      assert.equal(stillThere.status, 'rejected');
+
+      const publicAfterReject = await request.get(`/api/reviews?product_id=${result.insertId}`);
+      assert.equal(publicAfterReject.body.total, 0);
 
       await pool.query('DELETE FROM products WHERE id = ?', [result.insertId]);
     });
