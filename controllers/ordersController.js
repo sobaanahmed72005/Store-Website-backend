@@ -464,7 +464,7 @@ export const STATUS_TRANSITIONS = {
   confirmed:         ['packed', 'cancelled'],
   packed:            ['shipped', 'cancelled'],
   shipped:           ['out_for_delivery'],
-  out_for_delivery:  ['delivered'],
+  out_for_delivery:  ['delivered', 'returned'],
   delivered:         ['returned'],
   returned:          [],
   cancelled:         [],

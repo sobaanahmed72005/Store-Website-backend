@@ -255,7 +255,7 @@ const SORT_CLAUSES = {
 };
 
 export async function getProducts(req, res) {
-  const { category, search, featured, new_arrival, on_sale, brand, options, sort } = req.query;
+  const { category, search, featured, new_arrival, on_sale, low_stock, brand, options, sort } = req.query;
   const { page, limit, offset } = parsePagination(req, 24);
   // The rating join only runs when actually sorting by rating — every other listing request
   // (the overwhelming majority) skips the extra join and aggregate entirely.
@@ -280,6 +280,9 @@ export async function getProducts(req, res) {
   if (featured) where.push('p.is_featured = 1');
   if (new_arrival) where.push('p.is_new_arrival = 1');
   if (on_sale) where.push('p.is_on_sale = 1');
+  // Same threshold as the dashboard's "Low Stock" stat card (adminController.js) — kept in sync
+  // so clicking through from that card shows exactly the products counted there.
+  if (low_stock) where.push('p.stock <= 5');
   // Brand is plain text on the product, matched case-insensitively (the storefront's own filter
   // checkboxes are similarly deduped case-insensitively) — a comma-separated list is an OR (any
   // of the checked brands).
