@@ -108,9 +108,9 @@ export async function deleteOwnReview(req, res) {
 // ── Admin ──────────────────────────────────────────────────────────────────
 
 export async function adminListReviews(req, res) {
-  const { status } = req.query; // 'pending' | 'approved' | undefined (all)
+  const { status } = req.query; // 'pending' | 'approved' | 'rejected' | undefined (all)
   const { page, limit, offset } = parsePagination(req, 50);
-  const where = status && ['pending', 'approved'].includes(status)
+  const where = status && ['pending', 'approved', 'rejected'].includes(status)
     ? 'AND r.status = ?'
     : '';
   const params = [req.business.id, ...(where ? [status] : [])];
@@ -125,7 +125,7 @@ export async function adminListReviews(req, res) {
      FROM product_reviews r
      JOIN products p ON p.id = r.product_id
      WHERE r.business_id = ? ${where}
-     ORDER BY FIELD(r.status,'pending','approved'), r.created_at DESC
+     ORDER BY FIELD(r.status,'pending','approved','rejected'), r.created_at DESC
      LIMIT ? OFFSET ?`,
     [...params, limit, offset],
   );
@@ -138,21 +138,13 @@ export async function adminApproveReview(req, res) {
     return res.status(400).json({ error: 'action must be approve or reject' });
   }
 
-  if (action === 'reject') {
-    const [result] = await pool.query(
-      'DELETE FROM product_reviews WHERE id = ? AND business_id = ?',
-      [req.params.id, req.business.id],
-    );
-    if (result.affectedRows === 0) return res.status(404).json({ error: 'Review not found' });
-    return res.json({ message: 'Review rejected and removed' });
-  }
-
+  const status = action === 'reject' ? 'rejected' : 'approved';
   const [result] = await pool.query(
-    `UPDATE product_reviews SET status = 'approved' WHERE id = ? AND business_id = ?`,
-    [req.params.id, req.business.id],
+    `UPDATE product_reviews SET status = ? WHERE id = ? AND business_id = ?`,
+    [status, req.params.id, req.business.id],
   );
   if (result.affectedRows === 0) return res.status(404).json({ error: 'Review not found' });
-  res.json({ message: 'Review approved' });
+  res.json({ message: action === 'reject' ? 'Review rejected' : 'Review approved' });
 }
 
 export async function adminCreateReview(req, res) {

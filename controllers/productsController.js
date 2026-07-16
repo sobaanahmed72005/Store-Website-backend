@@ -138,6 +138,42 @@ async function setProductAttributeOptions(connection, productId, optionIds) {
   await connection.query('INSERT INTO product_attribute_values (product_id, option_id) VALUES ?', [values]);
 }
 
+// Same delete-then-reinsert pattern as setProductAttributeOptions/setProductImages. Each variant's
+// price/stock must already be validated by the caller before the transaction opens.
+async function setProductVariants(connection, businessId, productId, variants) {
+  await connection.query('DELETE FROM product_variants WHERE product_id = ?', [productId]);
+  if (!variants?.length) return;
+  for (const v of variants) {
+    const [result] = await connection.query(
+      'INSERT INTO product_variants (business_id, product_id, price, discount_price, stock) VALUES (?, ?, ?, ?, ?)',
+      [businessId, productId, v.price, v.discount_price ?? null, v.stock ?? 0]
+    );
+    if (v.option_ids?.length) {
+      const values = v.option_ids.map((optionId) => [result.insertId, optionId]);
+      await connection.query('INSERT INTO product_variant_options (variant_id, option_id) VALUES ?', [values]);
+    }
+  }
+}
+
+function validateVariants(variants) {
+  if (!variants?.length) return null;
+  for (const v of variants) {
+    const err = validatePriceAndStock(v.price, v.stock);
+    if (err) return err;
+    if (!v.option_ids?.length) return 'Each variant must have at least one selected option';
+    if (v.discount_price != null) {
+      const discount = Number(v.discount_price);
+      if (!Number.isFinite(discount) || discount <= 0) {
+        return 'Each variant sale price must be a positive number';
+      }
+      if (discount >= Number(v.price)) {
+        return 'Each variant sale price must be less than its regular price';
+      }
+    }
+  }
+  return null;
+}
+
 function validatePriceAndStock(price, stock) {
   if (!Number.isFinite(Number(price)) || Number(price) < 0) {
     return 'price must be a non-negative number';
@@ -165,39 +201,6 @@ async function setProductImages(connection, productId, images) {
   if (!images?.length) return;
   const values = images.map((image, index) => [productId, image, index]);
   await connection.query('INSERT INTO product_images (product_id, image, sort_order) VALUES ?', [values]);
-}
-
-function validateVariants(variants) {
-  if (!variants?.length) return null;
-  for (const v of variants) {
-    const err = validatePriceAndStock(v.price, v.stock);
-    if (err) return err;
-    if (!v.option_ids?.length) return 'Each variant must have at least one selected option';
-    if (v.discount_price != null) {
-      const discount = Number(v.discount_price);
-      if (!Number.isFinite(discount) || discount <= 0) {
-        return 'Each variant sale price must be a positive number';
-      }
-      if (discount >= Number(v.price)) {
-        return 'Each variant sale price must be less than its regular price';
-      }
-    }
-  }
-  return null;
-}
-
-// Delete-then-reinsert, mirroring setProductAttributeOptions/setProductImages exactly.
-async function setProductVariants(connection, productId, businessId, variants) {
-  await connection.query('DELETE FROM product_variants WHERE product_id = ?', [productId]);
-  if (!variants?.length) return;
-  for (const v of variants) {
-    const [result] = await connection.query(
-      'INSERT INTO product_variants (business_id, product_id, price, discount_price, stock) VALUES (?, ?, ?, ?, ?)',
-      [businessId, productId, v.price, v.discount_price ?? null, v.stock ?? 0]
-    );
-    const values = v.option_ids.map((optionId) => [result.insertId, optionId]);
-    await connection.query('INSERT INTO product_variant_options (variant_id, option_id) VALUES ?', [values]);
-  }
 }
 
 // specOverrides is a { [attributeName]: value } map from the admin form — only attributes the
@@ -348,15 +351,16 @@ export async function getProductBrands(req, res) {
 }
 
 export async function getProductSuggestions(req, res) {
-  const q = (req.query.q || '').trim();
+  const q = String(req.query.q || '').trim();
   if (!q) return res.json([]);
+
   const [rows] = await pool.query(
     `SELECT p.id, p.name, p.slug, p.image, p.price, p.discount_price, p.is_on_sale, c.name AS category_name
      FROM products p LEFT JOIN categories c ON p.category_id = c.id
-     WHERE p.business_id = ? AND (p.name LIKE ? OR p.brand LIKE ?)
-     ORDER BY p.name ASC
+     WHERE p.business_id = ? AND (p.name LIKE ? OR p.brand LIKE ? OR c.name LIKE ?)
+     ORDER BY (p.name LIKE ?) DESC, p.name ASC
      LIMIT 8`,
-    [req.business.id, `%${q}%`, `%${q}%`]
+    [req.business.id, `%${q}%`, `%${q}%`, `%${q}%`, `${q}%`]
   );
   res.json(rows);
 }
@@ -383,7 +387,7 @@ export async function getProductBySlug(req, res) {
 
 export async function createProduct(req, res) {
   const {
-    category_id, name, slug, brand, description, price, discount_price, stock, image,
+    category_id, name, slug, brand, description, price, discount_price, stock, image, video,
     is_featured, is_new_arrival, is_on_sale, attribute_option_ids, images, variants, spec_overrides,
   } = req.body;
   if (!name || !slug || price == null) {
@@ -414,21 +418,21 @@ export async function createProduct(req, res) {
   try {
     await connection.beginTransaction();
     const [result] = await connection.query(
-      `INSERT INTO products (business_id, category_id, name, slug, brand, description, price, discount_price, stock, image, is_featured, is_new_arrival, is_on_sale)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO products (business_id, category_id, name, slug, brand, description, price, discount_price, stock, image, video, is_featured, is_new_arrival, is_on_sale)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         req.business.id, category_id || null, name, slug, brand ?? null, description ?? null, effectivePrice,
-        discount_price ?? null, effectiveStock ?? 0, image ?? null,
+        discount_price ?? null, effectiveStock ?? 0, image ?? null, video ?? null,
         Number(Boolean(is_featured)), Number(Boolean(is_new_arrival)), Number(Boolean(is_on_sale)),
       ]
     );
     await setProductAttributeOptions(connection, result.insertId, attribute_option_ids);
     await setProductImages(connection, result.insertId, images);
-    await setProductVariants(connection, result.insertId, req.business.id, variants);
+    await setProductVariants(connection, req.business.id, result.insertId, variants);
     await setProductSpecOverrides(connection, result.insertId, spec_overrides);
     await connection.commit();
     res.status(201).json({ id: result.insertId });
-    logAudit({ req, action: 'product.create', entityType: 'product', entityId: result.insertId, details: { name, price, stock: stock ?? 0 } });
+    logAudit({ req, action: 'product.create', entityType: 'product', entityId: result.insertId, details: { name, price: effectivePrice, stock: effectiveStock ?? 0 } });
   } catch (err) {
     await connection.rollback();
     if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'A product with this name/slug already exists' });
@@ -456,9 +460,35 @@ async function notifyBackInStock(businessId, productId) {
   }
 }
 
+// A product is "effectively" on sale only when both the flag and a discount price are set —
+// mirrors src/utils/pricing.js's getEffectivePrice on the frontend so both sides agree on
+// what price the customer actually pays.
+function getEffectivePrice({ price, discount_price, is_on_sale }) {
+  const onSale = Boolean(is_on_sale) && discount_price != null;
+  return onSale ? Number(discount_price) : Number(price);
+}
+
+async function notifyPriceDrop(businessId, productId, newPrice) {
+  const [rows] = await pool.query(
+    `SELECT u.email, u.name, p.name AS product_name, p.slug AS product_slug
+     FROM wishlist_items w
+     JOIN users u ON u.id = w.user_id
+     JOIN products p ON p.id = w.product_id
+     WHERE w.business_id = ? AND w.product_id = ?`,
+    [businessId, productId]
+  );
+  for (const row of rows) {
+    sendMail({
+      to: row.email,
+      subject: `Price drop on ${row.product_name}!`,
+      html: `<p>Hi ${escapeHtml(row.name)},</p><p>Good news — <strong>${escapeHtml(row.product_name)}</strong>, an item on your wishlist, just dropped in price to Rs.&nbsp;${Number(newPrice).toLocaleString()}. Grab it while the deal lasts!</p>`,
+    });
+  }
+}
+
 export async function updateProduct(req, res) {
   const {
-    category_id, name, slug, brand, description, price, discount_price, stock, image,
+    category_id, name, slug, brand, description, price, discount_price, stock, image, video,
     is_featured, is_new_arrival, is_on_sale, attribute_option_ids, images, variants, spec_overrides,
   } = req.body;
 
@@ -469,13 +499,17 @@ export async function updateProduct(req, res) {
   const variantError = validateVariants(variants);
   if (variantError) return res.status(400).json({ error: variantError });
 
-  const [existingRows] = await pool.query('SELECT price, stock FROM products WHERE id = ? AND business_id = ?', [req.params.id, req.business.id]);
+  const effectivePrice = variants?.length ? Math.min(...variants.map(variantEffectivePrice)) : price;
+  const effectiveStock = variants?.length ? variants.reduce((sum, v) => sum + Number(v.stock || 0), 0) : stock;
+
+  const [existingRows] = await pool.query(
+    'SELECT price, stock, discount_price, is_on_sale FROM products WHERE id = ? AND business_id = ?',
+    [req.params.id, req.business.id]
+  );
   if (existingRows.length === 0) return res.status(404).json({ error: 'Product not found' });
   const previousStock = existingRows[0].stock;
   const previousPrice = existingRows[0].price;
-
-  const effectivePrice = variants?.length ? Math.min(...variants.map(variantEffectivePrice)) : price;
-  const effectiveStock = variants?.length ? variants.reduce((sum, v) => sum + Number(v.stock || 0), 0) : stock;
+  const previousEffectivePrice = getEffectivePrice(existingRows[0]);
 
   const priceStockError = validatePriceAndStock(effectivePrice, effectiveStock);
   if (priceStockError) return res.status(400).json({ error: priceStockError });
@@ -493,10 +527,10 @@ export async function updateProduct(req, res) {
     await connection.beginTransaction();
     const [result] = await connection.query(
       `UPDATE products SET category_id = ?, name = ?, slug = ?, brand = ?, description = ?, price = ?,
-       discount_price = ?, stock = ?, image = ?, is_featured = ?, is_new_arrival = ?, is_on_sale = ? WHERE id = ? AND business_id = ?`,
+       discount_price = ?, stock = ?, image = ?, video = ?, is_featured = ?, is_new_arrival = ?, is_on_sale = ? WHERE id = ? AND business_id = ?`,
       [
         category_id || null, name, slug, brand ?? null, description ?? null, effectivePrice,
-        discount_price ?? null, effectiveStock ?? 0, image ?? null,
+        discount_price ?? null, effectiveStock ?? 0, image ?? null, video ?? null,
         Number(Boolean(is_featured)), Number(Boolean(is_new_arrival)), Number(Boolean(is_on_sale)),
         req.params.id, req.business.id,
       ]
@@ -507,7 +541,7 @@ export async function updateProduct(req, res) {
     }
     await setProductAttributeOptions(connection, req.params.id, attribute_option_ids);
     await setProductImages(connection, req.params.id, images);
-    await setProductVariants(connection, req.params.id, req.business.id, variants);
+    await setProductVariants(connection, req.business.id, req.params.id, variants);
     await setProductSpecOverrides(connection, req.params.id, spec_overrides);
     await connection.commit();
     res.json({ message: 'Product updated' });
@@ -530,6 +564,11 @@ export async function updateProduct(req, res) {
     notifyBackInStock(req.business.id, req.params.id).catch((err) => {
       logger.error({ err, businessId: req.business.id, productId: req.params.id }, 'notifyBackInStock failed');
     });
+  }
+
+  const newEffectivePrice = getEffectivePrice({ price: effectivePrice, discount_price, is_on_sale });
+  if (newEffectivePrice < previousEffectivePrice) {
+    notifyPriceDrop(req.business.id, req.params.id, newEffectivePrice);
   }
 }
 

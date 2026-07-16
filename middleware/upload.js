@@ -30,9 +30,15 @@ function fileFilter(req, file, cb) {
   cb(new Error('Only image files are allowed'));
 }
 
-const limits = { fileSize: 5 * 1024 * 1024 };
+function videoFileFilter(req, file, cb) {
+  if (/^video\/(mp4|webm)$/.test(file.mimetype)) return cb(null, true);
+  cb(new Error('Only mp4 or webm video files are allowed'));
+}
 
-// Both kinds of upload land in memory, not on disk — utils/uploadHandler.js validates/re-encodes
+const limits = { fileSize: 5 * 1024 * 1024 };
+const videoLimits = { fileSize: 50 * 1024 * 1024 };
+
+// All upload kinds land in memory, not on disk — utils/uploadHandler.js validates/re-encodes
 // the buffer via sharp and only then writes it to its final destination (local disk or object
 // storage). Writing straight to a directory express.static serves (the old behavior) meant an
 // unvalidated, client-named file was briefly reachable by URL before that validation ran.
@@ -47,3 +53,7 @@ export const upload = multer({ storage, fileFilter, limits });
 // (see controllers/ordersController.js), which checks the requester owns the order or is an
 // admin before streaming the file back.
 export const paymentProofUpload = multer({ storage, fileFilter, limits });
+
+// Product videos — same public-once-processed model as `upload`, just a larger size cap and a
+// video-specific mimetype allowlist.
+export const uploadVideo = multer({ storage, fileFilter: videoFileFilter, limits: videoLimits });

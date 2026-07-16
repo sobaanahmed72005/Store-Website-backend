@@ -1,5 +1,5 @@
 import pool from '../config/db.js';
-import { getOwnAttributesForCategory, getAncestorChainIds } from '../utils/categoryAttributes.js';
+import { getMergedAttributesForCategoryAndDescendants, getAncestorChainIds } from '../utils/categoryAttributes.js';
 import { resolveCategoryAndDescendantIds } from './productsController.js';
 
 export async function getCategories(req, res) {
@@ -29,7 +29,7 @@ export async function getCategoryBySlug(req, res) {
     req.business.id,
     category.id,
   ]);
-  const attributes = await getOwnAttributesForCategory(req.business.id, category.id);
+  const attributes = await getMergedAttributesForCategoryAndDescendants(req.business.id, category.id);
 
   // Independent of whatever page/filter is currently active on the storefront — the sidebar's
   // Brand checkbox list needs to stay stable (every brand that exists anywhere in this category)

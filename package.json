@@ -10,7 +10,7 @@
     "start": "cross-env NODE_ENV=production node server.js",
     "test": "cross-env NODE_ENV=test DB_NAME=czone_test node --test --test-concurrency=1 --test-force-exit test/*.test.js",
     "db:init": "node sql/init.js",
-    "db:migrate": "npm run db:migrate-2fa && npm run db:migrate-updated-at && npm run db:migrate-token-version && npm run db:migrate-discount-guard && npm run db:migrate-sessions && npm run db:migrate-payment-proof && npm run db:migrate-product-variants && npm run db:migrate-product-spec-overrides && npm run db:migrate-verification-expiry && npm run db:migrate-scale-indexes && npm run db:migrate-totp-replay-guard",
+    "db:migrate": "npm run db:migrate-2fa && npm run db:migrate-updated-at && npm run db:migrate-token-version && npm run db:migrate-discount-guard && npm run db:migrate-sessions && npm run db:migrate-payment-proof && npm run db:migrate-product-variants && npm run db:migrate-product-spec-overrides && npm run db:migrate-verification-expiry && npm run db:migrate-scale-indexes && npm run db:migrate-totp-replay-guard && npm run db:migrate-review-status && npm run db:migrate-product-video",
     "db:migrate-2fa": "node sql/migrate-2fa.js",
     "db:migrate-updated-at": "node sql/migrate-updated-at.js",
     "db:migrate-token-version": "node sql/migrate-token-version.js",
@@ -22,7 +22,9 @@
     "db:migrate-verification-expiry": "node sql/migrate-verification-expiry.js",
     "db:migrate-scale-indexes": "node sql/migrate-scale-indexes.js",
     "db:migrate-totp-replay-guard": "node sql/migrate-totp-replay-guard.js",
-    "db:migrate-token-hash": "node sql/migrate-token-hash.js"
+    "db:migrate-token-hash": "node sql/migrate-token-hash.js",
+    "db:migrate-review-status": "node sql/migrate-review-status.js",
+    "db:migrate-product-video": "node sql/migrate-product-video.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1087.0",

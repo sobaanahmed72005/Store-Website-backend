@@ -111,7 +111,9 @@ export async function adminList(req, res) {
 export async function getNewSubscribers(req, res) {
   const sinceId = Number(req.query.since_id) || 0;
   const [subscribers] = await pool.query(
-    'SELECT id, email, created_at FROM newsletter_subscribers WHERE business_id = ? AND id > ? ORDER BY id DESC LIMIT 20',
+    `SELECT id, email, created_at FROM newsletter_subscribers
+     WHERE business_id = ? AND id > ? AND unsubscribed_at IS NULL
+     ORDER BY id DESC LIMIT 20`,
     [req.business.id, sinceId]
   );
   const [[{ maxId }]] = await pool.query(

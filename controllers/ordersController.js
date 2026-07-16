@@ -329,6 +329,11 @@ export async function createOrder(req, res) {
 // Payment-proof screenshots can contain bank details/PII, so unlike product images they're not
 // served through the public /uploads static mount — this is the only way to fetch one, and it's
 // gated to the order's own customer or an admin rather than being world-readable by filename.
+
+
+// Payment-proof screenshots can contain bank details/PII, so unlike product images they're not
+// served through the public /uploads static mount — this is the only way to fetch one, and it's
+// gated to the order's own customer or an admin rather than being world-readable by filename.
 export async function servePaymentProof(req, res) {
   if (!GENERATED_FILENAME_PATTERN.test(req.params.filename)) {
     return res.status(400).json({ error: 'Invalid filename' });
