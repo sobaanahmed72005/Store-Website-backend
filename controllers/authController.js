@@ -313,9 +313,15 @@ export async function setupTwoFactor(req, res) {
   const { password } = req.body;
   if (!password) return res.status(400).json({ error: 'password is required' });
 
-  const [rows] = await pool.query('SELECT password_hash FROM users WHERE id = ?', [req.user.id]);
+  const [rows] = await pool.query('SELECT password_hash, totp_enabled FROM users WHERE id = ?', [req.user.id]);
   if (!(await bcrypt.compare(password, rows[0].password_hash))) {
     return res.status(401).json({ error: 'Incorrect password' });
+  }
+  // Writing a new secret here immediately replaces the old one, even though it isn't "live" until
+  // confirmed — if 2FA is already enabled, that silently breaks the authenticator app already
+  // enrolled, with no confirmation step to notice before it does. Disable first, then re-enroll.
+  if (rows[0].totp_enabled) {
+    return res.status(400).json({ error: 'Two-factor authentication is already enabled. Disable it first to set up a new device.' });
   }
 
   const secret = generateTotpSecret();

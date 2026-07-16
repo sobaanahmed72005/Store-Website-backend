@@ -347,6 +347,20 @@ export async function getProductBrands(req, res) {
   res.json([...byKey.values()].sort((a, b) => a.localeCompare(b)));
 }
 
+export async function getProductSuggestions(req, res) {
+  const q = (req.query.q || '').trim();
+  if (!q) return res.json([]);
+  const [rows] = await pool.query(
+    `SELECT p.id, p.name, p.slug, p.image, p.price, p.discount_price, p.is_on_sale, c.name AS category_name
+     FROM products p LEFT JOIN categories c ON p.category_id = c.id
+     WHERE p.business_id = ? AND (p.name LIKE ? OR p.brand LIKE ?)
+     ORDER BY p.name ASC
+     LIMIT 8`,
+    [req.business.id, `%${q}%`, `%${q}%`]
+  );
+  res.json(rows);
+}
+
 export async function getProductById(req, res) {
   const [rows] = await pool.query(
     'SELECT p.*, c.name AS category_name, c.slug AS category_slug FROM products p LEFT JOIN categories c ON p.category_id = c.id WHERE p.business_id = ? AND p.id = ?',
@@ -554,33 +568,98 @@ export async function bulkSale(req, res) {
     return res.status(400).json({ error: 'Invalid scope' });
   }
 
-  if (action === 'clear') {
-    const [result] = await pool.query(`UPDATE products SET is_on_sale = 0, discount_price = NULL WHERE ${where}`, params);
-    return res.json({ message: 'Sale cleared', updated: result.affectedRows });
+  const [matchedProducts] = await pool.query(`SELECT id, price FROM products WHERE ${where}`, params);
+  const matchedIds = matchedProducts.map((p) => p.id);
+  if (matchedIds.length === 0) {
+    return res.json({ message: action === 'clear' ? 'Sale cleared' : 'Sale applied', updated: 0 });
   }
 
-  if (action !== 'apply') return res.status(400).json({ error: 'Invalid action' });
-  if (!discountType || value == null) return res.status(400).json({ error: 'discountType and value are required' });
-
-  if (discountType === 'percent') {
-    const pct = Number(value);
-    if (!Number.isFinite(pct) || pct <= 0 || pct >= 100) return res.status(400).json({ error: 'Percentage must be between 0 and 100' });
-    const [result] = await pool.query(
-      `UPDATE products SET discount_price = ROUND(price * (1 - ? / 100), 2), is_on_sale = 1 WHERE ${where}`,
-      [pct, ...params]
-    );
-    return res.json({ message: 'Sale applied', updated: result.affectedRows });
+  // A product with variants shows a derived "starting from" price/sale badge on the storefront,
+  // not an admin-entered one — writing discount_price only on the base row (as this used to do)
+  // left that badge pointing at a sale price no actual variant honored. Every variant needs its
+  // own discount applied too, with the base row's badge recomputed from the (now discounted)
+  // per-variant prices, the same way create/update product does it.
+  const [variantRows] = await pool.query(
+    `SELECT id, product_id, price FROM product_variants WHERE product_id IN (${matchedIds.map(() => '?').join(',')})`,
+    matchedIds
+  );
+  const variantsByProduct = new Map();
+  for (const v of variantRows) {
+    if (!variantsByProduct.has(v.product_id)) variantsByProduct.set(v.product_id, []);
+    variantsByProduct.get(v.product_id).push(v);
   }
 
-  if (discountType === 'fixed') {
-    const fixedPrice = Number(value);
-    if (!Number.isFinite(fixedPrice) || fixedPrice <= 0) return res.status(400).json({ error: 'Sale price must be greater than 0' });
-    const [result] = await pool.query(
-      `UPDATE products SET discount_price = ?, is_on_sale = 1 WHERE ${where} AND price > ?`,
-      [fixedPrice, ...params, fixedPrice]
-    );
-    return res.json({ message: 'Sale applied', updated: result.affectedRows });
-  }
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
 
-  res.status(400).json({ error: 'Invalid discountType' });
+    if (action === 'clear') {
+      await connection.query(`UPDATE products SET is_on_sale = 0, discount_price = NULL WHERE ${where}`, params);
+      if (variantRows.length > 0) {
+        await connection.query(
+          `UPDATE product_variants SET discount_price = NULL WHERE product_id IN (${matchedIds.map(() => '?').join(',')})`,
+          matchedIds
+        );
+      }
+      await connection.commit();
+      return res.json({ message: 'Sale cleared', updated: matchedIds.length });
+    }
+
+    if (action !== 'apply') {
+      await connection.rollback();
+      return res.status(400).json({ error: 'Invalid action' });
+    }
+    if (!discountType || value == null) {
+      await connection.rollback();
+      return res.status(400).json({ error: 'discountType and value are required' });
+    }
+
+    let computeDiscount;
+    if (discountType === 'percent') {
+      const pct = Number(value);
+      if (!Number.isFinite(pct) || pct <= 0 || pct >= 100) {
+        await connection.rollback();
+        return res.status(400).json({ error: 'Percentage must be between 0 and 100' });
+      }
+      computeDiscount = (price) => Math.round(price * (1 - pct / 100) * 100) / 100;
+    } else if (discountType === 'fixed') {
+      const fixedPrice = Number(value);
+      if (!Number.isFinite(fixedPrice) || fixedPrice <= 0) {
+        await connection.rollback();
+        return res.status(400).json({ error: 'Sale price must be greater than 0' });
+      }
+      computeDiscount = (price) => (price > fixedPrice ? fixedPrice : null);
+    } else {
+      await connection.rollback();
+      return res.status(400).json({ error: 'Invalid discountType' });
+    }
+
+    let updated = 0;
+    for (const product of matchedProducts) {
+      const variants = variantsByProduct.get(product.id);
+      if (variants?.length) {
+        const discountedVariants = variants.map((v) => ({ ...v, discount_price: computeDiscount(Number(v.price)) }));
+        if (!discountedVariants.some((v) => v.discount_price != null)) continue;
+        for (const v of discountedVariants) {
+          await connection.query('UPDATE product_variants SET discount_price = ? WHERE id = ?', [v.discount_price, v.id]);
+        }
+        const effectivePrice = Math.min(...discountedVariants.map(variantEffectivePrice));
+        await connection.query('UPDATE products SET discount_price = ?, is_on_sale = 1 WHERE id = ?', [effectivePrice, product.id]);
+        updated++;
+      } else {
+        const discountPrice = computeDiscount(Number(product.price));
+        if (discountPrice == null) continue;
+        await connection.query('UPDATE products SET discount_price = ?, is_on_sale = 1 WHERE id = ?', [discountPrice, product.id]);
+        updated++;
+      }
+    }
+
+    await connection.commit();
+    res.json({ message: 'Sale applied', updated });
+  } catch (err) {
+    await connection.rollback();
+    throw err;
+  } finally {
+    connection.release();
+  }
 }
