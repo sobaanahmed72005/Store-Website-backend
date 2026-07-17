@@ -11,20 +11,11 @@ import { encryptSecret, decryptSecret } from '../utils/crypto.js';
 import { generateTotpSecret, verifyTotpToken, buildOtpAuthQrCode, generateRecoveryCodes } from '../utils/totp.js';
 import { createChallengeStore } from '../utils/challengeStore.js';
 import { createSession, revokeSession, revokeAllSessions } from '../utils/sessions.js';
+import { passwordLengthError } from '../utils/validation.js';
 import { JWT_SECRET, FRONTEND_URL } from '../config/env.js';
 
 const BCRYPT_ROUNDS = 12;
 const loginChallenges = createChallengeStore();
-
-const MIN_PASSWORD_LENGTH = 8;
-const MAX_PASSWORD_LENGTH = 128;
-function passwordLengthError(password) {
-  if (password.length < MIN_PASSWORD_LENGTH) return `Password must be at least ${MIN_PASSWORD_LENGTH} characters`;
-  // bcrypt silently truncates/ignores input past 72 bytes — an unbounded password is otherwise a
-  // free way to burn CPU on every hash/compare call for no security benefit past that point.
-  if (password.length > MAX_PASSWORD_LENGTH) return `Password must be at most ${MAX_PASSWORD_LENGTH} characters`;
-  return null;
-}
 
 // verification_token/reset_token are single-use, high-entropy (32 random bytes) values — hashing
 // them before storage means a read-access leak of the users table (a DB backup, a misconfigured

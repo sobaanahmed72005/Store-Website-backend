@@ -5,6 +5,7 @@ import mysql from 'mysql2/promise';
 import bcrypt from 'bcryptjs';
 import { DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME, ADMIN_NAME, ADMIN_EMAIL, ADMIN_PASSWORD } from '../config/env.js';
 import { recordMigration } from './migrationRunner.js';
+import { passwordLengthError } from '../utils/validation.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dbName = DB_NAME;
@@ -62,6 +63,16 @@ async function run() {
   }
 
   if (ADMIN_EMAIL && ADMIN_PASSWORD) {
+    // Every other account in this app (register, change-password, reset-password) is rejected if
+    // its password fails this same check — the seeded admin account is the one place that used
+    // to bypass it entirely, silently creating a full admin account with whatever ADMIN_PASSWORD
+    // an operator happened to set, no matter how weak. Fail loudly here instead, the same way
+    // config/env.js already does for a weak/missing JWT_SECRET.
+    const weakPasswordError = passwordLengthError(ADMIN_PASSWORD);
+    if (weakPasswordError) {
+      throw new Error(`ADMIN_PASSWORD is too weak: ${weakPasswordError}. Set a stronger value and re-run.`);
+    }
+
     const [adminRows] = await connection.query(
       'SELECT id FROM users WHERE business_id = ? AND email = ?',
       [businessId, ADMIN_EMAIL],
