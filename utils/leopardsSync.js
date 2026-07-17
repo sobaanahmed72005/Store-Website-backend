@@ -1,6 +1,6 @@
 import pool from '../config/db.js';
 import { trackLeopardsPackets, mapLeopardsStatus } from '../controllers/courierController.js';
-import { applySyncedOrderStatus } from '../controllers/ordersController.js';
+import { applySyncedOrderStatus, COURIER_BOOKING_CLAIM } from '../controllers/ordersController.js';
 import { logger } from './logger.js';
 
 const log = logger.child({ component: 'leopardsSync' });
@@ -26,10 +26,14 @@ export async function syncLeopardsTracking() {
 }
 
 async function syncBusiness(businessId) {
+  // Excludes COURIER_BOOKING_CLAIM — the transient placeholder ordersController.js writes while
+  // a courier-booking request is in flight — so this periodic sync can never send that literal
+  // string to Leopards' API as if it were a real tracking number during the brief window one is
+  // held.
   const [orders] = await pool.query(
     `SELECT id, status, tracking_number FROM orders
-     WHERE business_id = ? AND status IN (?) AND tracking_number IS NOT NULL AND tracking_number != ''`,
-    [businessId, TRACKABLE_STATUSES]
+     WHERE business_id = ? AND status IN (?) AND tracking_number IS NOT NULL AND tracking_number NOT IN ('', ?)`,
+    [businessId, TRACKABLE_STATUSES, COURIER_BOOKING_CLAIM]
   );
   if (orders.length === 0) return;
 

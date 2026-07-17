@@ -512,6 +512,15 @@ async function restoreOrderStock(connection, businessId, orderId) {
   }
 }
 
+// A customer who cancels before fulfillment, or later returns, never actually completed the
+// purchase — so a single-use discount code they redeemed on this order shouldn't stay permanently
+// consumed. Deleting the redemption row frees up the single_use_guard unique constraint the same
+// way it was before the code was ever used. Must run on the same connection/transaction as
+// restoreOrderStock for the same crash-safety reason (all-or-nothing with the status change).
+async function releaseDiscountCodeRedemption(connection, orderId) {
+  await connection.query('DELETE FROM discount_code_redemptions WHERE order_id = ?', [orderId]);
+}
+
 function buildStatusEmail(status, id, order, tpl = null, storeName) {
   const name = order.shipping_name || order.customer_name || 'there';
   const storeUrl = FRONTEND_URL;
@@ -693,6 +702,7 @@ export async function updateOrderStatus(req, res) {
 
     if (restoresStock) {
       await restoreOrderStock(connection, req.business.id, req.params.id);
+      await releaseDiscountCodeRedemption(connection, req.params.id);
       await connection.commit();
     }
   } catch (err) {
@@ -708,27 +718,54 @@ export async function updateOrderStatus(req, res) {
   let booked = null;
   let courierWarning = null;
   if (status === 'shipped' && !order.tracking_number) {
-    try {
-      const courierSettings = await getCourierSettings(req.business.id);
-      if (courierSettings.enabled && isLeopardsProvider(courierSettings.provider)) {
-        booked = await bookLeopardsPacket(req.business.id, order);
-        await pool.query(
-          'UPDATE orders SET courier_name = ?, tracking_number = ? WHERE id = ? AND business_id = ?',
-          ['Leopards Courier', booked.trackNumber, req.params.id, req.business.id],
-        );
+    const courierSettings = await getCourierSettings(req.business.id);
+    if (courierSettings.enabled && isLeopardsProvider(courierSettings.provider)) {
+      // order.tracking_number above was read *before* the status-transition claim landed, so
+      // it's stale by now — this endpoint's own bookOrderCourier sibling could have booked (or
+      // started booking) the same order in the meantime. Claim atomically the same way that one
+      // does, rather than trusting the stale read, so the two endpoints can't race each other.
+      const [claimResult] = await pool.query(
+        'UPDATE orders SET tracking_number = ? WHERE id = ? AND business_id = ? AND tracking_number IS NULL',
+        [COURIER_BOOKING_CLAIM, req.params.id, req.business.id],
+      );
+      if (claimResult.affectedRows > 0) {
+        try {
+          booked = await bookLeopardsPacket(req.business.id, order);
+          const [writeResult] = await pool.query(
+            'UPDATE orders SET courier_name = ?, tracking_number = ? WHERE id = ? AND business_id = ? AND tracking_number = ?',
+            ['Leopards Courier', booked.trackNumber, req.params.id, req.business.id, COURIER_BOOKING_CLAIM],
+          );
+          if (writeResult.affectedRows === 0) {
+            logger.error(
+              { orderId: req.params.id, businessId: req.business.id, trackNumber: booked.trackNumber },
+              'Leopards booking succeeded but its tracking number was not saved — order tracking_number was already overwritten (likely a manual entry) by the time the booking completed',
+            );
+            logAudit({
+              req, action: 'order.courier_booking_write_lost', entityType: 'order', entityId: req.params.id,
+              details: { trackNumber: booked.trackNumber },
+            });
+          }
+        } catch (err) {
+          courierWarning = err.message;
+          await pool.query(
+            'UPDATE orders SET tracking_number = NULL WHERE id = ? AND business_id = ? AND tracking_number = ?',
+            [req.params.id, req.business.id, COURIER_BOOKING_CLAIM],
+          );
+          // The order still commits to "shipped" regardless (see comment above) — this is the
+          // only durable trace of a failed auto-booking otherwise, since courierWarning only
+          // ever reaches whoever's browser made this one request. Without this, a missed inline
+          // warning means the only way to later discover a "shipped" order was never actually
+          // booked with the courier is noticing a null tracking_number.
+          logger.error({ err, orderId: req.params.id, businessId: req.business.id }, 'Auto-booking with Leopards failed after marking order shipped');
+          logAudit({
+            req, action: 'order.courier_autobook_failed', entityType: 'order', entityId: req.params.id,
+            details: { error: err.message },
+          });
+        }
       }
-    } catch (err) {
-      courierWarning = err.message;
-      // The order still commits to "shipped" regardless (see comment above) — this is the only
-      // durable trace of a failed auto-booking otherwise, since courierWarning only ever reaches
-      // whoever's browser made this one request. Without this, a missed inline warning means the
-      // only way to later discover a "shipped" order was never actually booked with the courier
-      // is noticing a null tracking_number.
-      logger.error({ err, orderId: req.params.id, businessId: req.business.id }, 'Auto-booking with Leopards failed after marking order shipped');
-      logAudit({
-        req, action: 'order.courier_autobook_failed', entityType: 'order', entityId: req.params.id,
-        details: { error: err.message },
-      });
+      // If claimResult.affectedRows === 0, something else (bookOrderCourier, most likely) already
+      // claimed or finished booking this order — silently skip, same as the pre-existing "unless
+      // the admin already entered a tracking number" behavior this whole branch is guarding.
     }
   }
 
@@ -773,6 +810,7 @@ export async function applySyncedOrderStatus(businessId, orderId, currentStatus,
 
     if (applied && restoresStock) {
       await restoreOrderStock(connection, businessId, orderId);
+      await releaseDiscountCodeRedemption(connection, orderId);
       await connection.commit();
     } else if (restoresStock) {
       await connection.rollback();
@@ -794,7 +832,7 @@ export async function applySyncedOrderStatus(businessId, orderId, currentStatus,
 // "no tracking number yet" check below and book a second real Leopards shipment. Released back
 // to NULL if the booking attempt fails, or overwritten with the real tracking number if it
 // succeeds — never returned to a client or persisted past a single request.
-const COURIER_BOOKING_CLAIM = '__booking_in_progress__';
+export const COURIER_BOOKING_CLAIM = '__booking_in_progress__';
 
 // The claim above is only ever visible for the brief window of one live Leopards API call, but
 // an admin/customer page load that lands in that exact window should still never see it — mask
@@ -810,11 +848,12 @@ export async function bookOrderCourier(req, res) {
   const order = rows[0];
   if (order.tracking_number) return res.status(400).json({ error: 'This order already has a tracking number.' });
 
-  // Claim the booking atomically *before* calling Leopards — mirrors the same guard already used
-  // in updateOrderStatus's auto-book path. Without this, two concurrent requests could both pass
-  // the check above and both book a real shipment (and, for COD orders, register two separate
-  // collect-amount charges with the courier); only one write would persist, leaving the other
-  // orphaned with real money spent and no record of it anywhere.
+  // Claim the booking atomically *before* calling Leopards — the same guard is also applied in
+  // updateOrderStatus's auto-book-on-shipped path, so this endpoint and that one can't race each
+  // other for the same order either. Without this, two concurrent requests (from either source)
+  // could both pass the check above and both book a real shipment (and, for COD orders, register
+  // two separate collect-amount charges with the courier); only one write would persist, leaving
+  // the other orphaned with real money spent and no record of it anywhere.
   const [claimResult] = await pool.query(
     'UPDATE orders SET tracking_number = ? WHERE id = ? AND business_id = ? AND tracking_number IS NULL',
     [COURIER_BOOKING_CLAIM, req.params.id, req.business.id]
@@ -825,10 +864,26 @@ export async function bookOrderCourier(req, res) {
 
   try {
     const booked = await bookLeopardsPacket(req.business.id, order);
-    await pool.query(
-      'UPDATE orders SET courier_name = ?, tracking_number = ? WHERE id = ? AND business_id = ?',
-      ['Leopards Courier', booked.trackNumber, req.params.id, req.business.id]
+    // Guarded on still holding our own claim, not just id+business_id — an admin could have
+    // manually entered a real tracking number (PUT .../tracking) while this booking call was in
+    // flight, and that must win, not get silently clobbered by our late-arriving success write.
+    const [writeResult] = await pool.query(
+      'UPDATE orders SET courier_name = ?, tracking_number = ? WHERE id = ? AND business_id = ? AND tracking_number = ?',
+      ['Leopards Courier', booked.trackNumber, req.params.id, req.business.id, COURIER_BOOKING_CLAIM]
     );
+    if (writeResult.affectedRows === 0) {
+      // A real Leopards shipment now exists with no record of its tracking number in our DB —
+      // same "durable trace" reasoning as the auto-book failure path below: without this, an
+      // admin has no way to discover the booking happened at all.
+      logger.error(
+        { orderId: req.params.id, businessId: req.business.id, trackNumber: booked.trackNumber },
+        'Leopards booking succeeded but its tracking number was not saved — order tracking_number was already overwritten (likely a manual entry) by the time the booking completed',
+      );
+      logAudit({
+        req, action: 'order.courier_booking_write_lost', entityType: 'order', entityId: req.params.id,
+        details: { trackNumber: booked.trackNumber },
+      });
+    }
     res.json({ message: 'Booked with Leopards', courier_name: 'Leopards Courier', tracking_number: booked.trackNumber });
   } catch (err) {
     // Release our claim so a retry (once whatever caused this failure is fixed) isn't
