@@ -87,7 +87,7 @@ export function emailButton(text, url) {
     <table cellpadding="0" cellspacing="0" border="0" style="margin:28px 0;">
       <tr>
         <td style="background:${PRIMARY};border-radius:6px;">
-          <a href="${url}" target="_blank"
+          <a href="${escapeHtml(url)}" target="_blank"
              style="display:inline-block;padding:14px 32px;font-size:15px;font-weight:700;color:#ffffff;text-decoration:none;letter-spacing:0.3px;">
             ${text}
           </a>

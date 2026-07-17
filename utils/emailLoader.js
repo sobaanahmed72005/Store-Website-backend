@@ -71,7 +71,17 @@ export async function getEmailTemplate(businessId, type) {
   };
 }
 
+// text is always either a hardcoded default from TEMPLATE_DEFAULTS above (safe) or an admin's
+// edited version of it, stored via PUT /admin/content/email-templates with no shape/HTML
+// validation on the message field — every caller passes the result straight into emailParagraph,
+// which does no escaping of its own (by design — several call sites deliberately pass raw,
+// hand-written HTML there, like a styled disclaimer <span>). So this is the one place that must
+// escape the admin-authored text itself, not just the {{var}} substitutions, or a malicious/
+// compromised admin session can inject arbitrary HTML/script into every one of: signup
+// verification, password reset, all 7 order-status emails, review reminders, and newsletter
+// welcome emails. escapeHtml only touches & < > " ', none of which appear in a {{key}} token, so
+// escaping first and substituting after still finds and replaces every placeholder correctly.
 export function applyPlaceholders(text, vars) {
   if (!text) return '';
-  return text.replace(/\{\{(\w+)\}\}/g, (_, key) => (vars[key] != null ? escapeHtml(vars[key]) : `{{${key}}}`));
+  return escapeHtml(text).replace(/\{\{(\w+)\}\}/g, (_, key) => (vars[key] != null ? escapeHtml(vars[key]) : `{{${key}}}`));
 }
