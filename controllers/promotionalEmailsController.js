@@ -12,7 +12,7 @@ function buildPromoHtml({ subject, message, poster_image }, unsubscribeUrl, stor
     : null;
 
   const img = imageUrl
-    ? `<img src="${imageUrl}" alt="" style="display:block;width:100%;max-width:600px;height:auto;border-radius:8px;margin:0 0 28px;" />`
+    ? `<img src="${escapeHtml(imageUrl)}" alt="" style="display:block;width:100%;max-width:600px;height:auto;border-radius:8px;margin:0 0 28px;" />`
     : '';
 
   const headlineBlock = `<h2 style="margin:0 0 20px;font-size:22px;font-weight:700;color:#102b53;line-height:1.3;">${escapeHtml(subject)}</h2>`;
