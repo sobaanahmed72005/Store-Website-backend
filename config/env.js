@@ -48,7 +48,10 @@ function assertStrongSecret(name, value, minLength) {
 }
 assertStrongSecret('JWT_SECRET', JWT_SECRET, 32);
 
-// Encrypts payment gateway (Safepay) and courier API credentials at rest in the database.
+// Encrypts courier API credentials and 2FA TOTP secrets at rest in the database (see
+// controllers/courierController.js, controllers/authController.js). There's no payment gateway
+// integration in this codebase to encrypt credentials for — orders.safepay_token in schema.sql is
+// an intentionally-kept-but-unused leftover from one that was removed.
 export const CREDENTIALS_ENCRYPTION_KEY = process.env.CREDENTIALS_ENCRYPTION_KEY;
 if (IS_PRODUCTION && CREDENTIALS_ENCRYPTION_KEY && !/^[0-9a-f]{64}$/i.test(CREDENTIALS_ENCRYPTION_KEY)) {
   throw new Error('CREDENTIALS_ENCRYPTION_KEY must be a 64-character hex string (32 bytes) — see .env.example for how to generate one.');
