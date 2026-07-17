@@ -390,6 +390,7 @@ export async function getOrdersByUser(req, res) {
       itemsByOrderId.get(item.order_id).push(item);
     }
     for (const order of orders) {
+      hideBookingClaim(order);
       order.items = itemsByOrderId.get(order.id) || [];
       order.tracking_url = buildTrackingUrl(order.tracking_number, courierSettings.tracking_url_template);
     }
@@ -431,6 +432,7 @@ export async function getAllOrders(req, res) {
      LIMIT ? OFFSET ?`,
     [req.business.id, limit, offset]
   );
+  orders.forEach(hideBookingClaim);
   res.json(buildPaginatedResponse('orders', orders, total, page, limit));
 }
 
@@ -459,7 +461,7 @@ export async function getOrderById(req, res) {
   );
   if (orders.length === 0) return res.status(404).json({ error: 'Order not found' });
   const [items] = await pool.query('SELECT * FROM order_items WHERE order_id = ?', [req.params.id]);
-  res.json({ ...orders[0], items });
+  res.json({ ...hideBookingClaim(orders[0]), items });
 }
 
 const VALID_STATUSES = ['pending_payment', 'pending', 'confirmed', 'packed', 'shipped', 'out_for_delivery', 'delivered', 'returned', 'cancelled'];
@@ -613,6 +615,7 @@ async function sendStatusChangeEmail(businessId, orderId, status) {
   const order = rows[0];
   const to = order?.email || order?.customer_email;
   if (!to) return;
+  hideBookingClaim(order);
 
   const courierSettings = await getCourierSettings(businessId);
   order.tracking_url = buildTrackingUrl(order.tracking_number, courierSettings.tracking_url_template);
@@ -716,6 +719,16 @@ export async function updateOrderStatus(req, res) {
       }
     } catch (err) {
       courierWarning = err.message;
+      // The order still commits to "shipped" regardless (see comment above) — this is the only
+      // durable trace of a failed auto-booking otherwise, since courierWarning only ever reaches
+      // whoever's browser made this one request. Without this, a missed inline warning means the
+      // only way to later discover a "shipped" order was never actually booked with the courier
+      // is noticing a null tracking_number.
+      logger.error({ err, orderId: req.params.id, businessId: req.business.id }, 'Auto-booking with Leopards failed after marking order shipped');
+      logAudit({
+        req, action: 'order.courier_autobook_failed', entityType: 'order', entityId: req.params.id,
+        details: { error: err.message },
+      });
     }
   }
 
@@ -776,11 +789,39 @@ export async function applySyncedOrderStatus(businessId, orderId, currentStatus,
   return true;
 }
 
+// Placeholder written to orders.tracking_number for the duration of a booking attempt, so a
+// second concurrent request (double admin click, or a client retry) can't also pass the
+// "no tracking number yet" check below and book a second real Leopards shipment. Released back
+// to NULL if the booking attempt fails, or overwritten with the real tracking number if it
+// succeeds — never returned to a client or persisted past a single request.
+const COURIER_BOOKING_CLAIM = '__booking_in_progress__';
+
+// The claim above is only ever visible for the brief window of one live Leopards API call, but
+// an admin/customer page load that lands in that exact window should still never see it — mask
+// it back to "no tracking number yet" wherever an order is read for display.
+function hideBookingClaim(order) {
+  if (order.tracking_number === COURIER_BOOKING_CLAIM) order.tracking_number = null;
+  return order;
+}
+
 export async function bookOrderCourier(req, res) {
   const [rows] = await pool.query('SELECT * FROM orders WHERE id = ? AND business_id = ?', [req.params.id, req.business.id]);
   if (rows.length === 0) return res.status(404).json({ error: 'Order not found' });
   const order = rows[0];
   if (order.tracking_number) return res.status(400).json({ error: 'This order already has a tracking number.' });
+
+  // Claim the booking atomically *before* calling Leopards — mirrors the same guard already used
+  // in updateOrderStatus's auto-book path. Without this, two concurrent requests could both pass
+  // the check above and both book a real shipment (and, for COD orders, register two separate
+  // collect-amount charges with the courier); only one write would persist, leaving the other
+  // orphaned with real money spent and no record of it anywhere.
+  const [claimResult] = await pool.query(
+    'UPDATE orders SET tracking_number = ? WHERE id = ? AND business_id = ? AND tracking_number IS NULL',
+    [COURIER_BOOKING_CLAIM, req.params.id, req.business.id]
+  );
+  if (claimResult.affectedRows === 0) {
+    return res.status(409).json({ error: 'This order already has a tracking number, or a booking for it is already in progress.' });
+  }
 
   try {
     const booked = await bookLeopardsPacket(req.business.id, order);
@@ -790,6 +831,13 @@ export async function bookOrderCourier(req, res) {
     );
     res.json({ message: 'Booked with Leopards', courier_name: 'Leopards Courier', tracking_number: booked.trackNumber });
   } catch (err) {
+    // Release our claim so a retry (once whatever caused this failure is fixed) isn't
+    // permanently blocked by our own placeholder — only clears it if it's still our claim,
+    // in case something else legitimately set a real tracking number in the meantime.
+    await pool.query(
+      'UPDATE orders SET tracking_number = NULL WHERE id = ? AND business_id = ? AND tracking_number = ?',
+      [req.params.id, req.business.id, COURIER_BOOKING_CLAIM]
+    );
     // bookLeopardsPacket's own throws are always hand-written, meant-for-the-client messages
     // (settings misconfigured, city not recognized, Leopards rejected the booking) — but a raw
     // DB error surfacing here (e.g. the settings lookup losing its connection) isn't, so let
