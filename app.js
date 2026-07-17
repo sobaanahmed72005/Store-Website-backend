@@ -3,6 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import pinoHttp from 'pino-http';
+import multer from 'multer';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -132,6 +133,12 @@ app.use((req, res) => {
 // errors to.
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
+  // Multer's own errors (file too large, too many files, etc.) are routine, expected 4xx cases —
+  // same treatment as the hand-written err.status = 400 rejections in middleware/upload.js's
+  // fileFilter — not the generic 500 they'd otherwise fall through to.
+  if (err instanceof multer.MulterError) {
+    err.status = err.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
+  }
   // req.log (from pino-http above) is already bound to this request's id, so this line and the
   // request's own completion line end up correlated in the log stream. business/userId aren't
   // things pino-http could know about on its own, so they're added explicitly here.

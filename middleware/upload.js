@@ -25,14 +25,23 @@ export { uploadsDir };
 // input.
 export const GENERATED_FILENAME_PATTERN = /^\d+-\d+\.[a-zA-Z0-9]+$/;
 
+// err.status marks this as an expected, hand-written 4xx for the global error handler in app.js —
+// without it, a routine "wrong file type" upload falls through to that handler's generic 500 path
+// and gets logged/Sentry-alerted the same as a real bug.
+function rejectUpload(cb, message) {
+  const err = new Error(message);
+  err.status = 400;
+  cb(err);
+}
+
 function fileFilter(req, file, cb) {
   if (/^image\/(png|jpe?g|webp|gif|avif)$/.test(file.mimetype)) return cb(null, true);
-  cb(new Error('Only image files are allowed'));
+  rejectUpload(cb, 'Only image files are allowed');
 }
 
 function videoFileFilter(req, file, cb) {
   if (/^video\/(mp4|webm)$/.test(file.mimetype)) return cb(null, true);
-  cb(new Error('Only mp4 or webm video files are allowed'));
+  rejectUpload(cb, 'Only mp4 or webm video files are allowed');
 }
 
 const limits = { fileSize: 5 * 1024 * 1024 };
