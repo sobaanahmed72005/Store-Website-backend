@@ -5,7 +5,7 @@ import {
 } from '../controllers/authController.js';
 import { requireAuth } from '../middleware/auth.js';
 import { loginRateLimit } from '../middleware/loginRateLimit.js';
-import { accountActionRateLimit } from '../middleware/accountActionRateLimit.js';
+import { accountActionRateLimit, authenticatedAccountActionRateLimit } from '../middleware/accountActionRateLimit.js';
 import { twoFactorRateLimit } from '../middleware/twoFactorRateLimit.js';
 import { refreshRateLimit } from '../middleware/refreshRateLimit.js';
 
@@ -18,10 +18,10 @@ router.post('/2fa/verify', twoFactorRateLimit, verifyTwoFactorLogin);
 router.post('/refresh', refreshRateLimit, refresh);
 router.post('/logout', logout);
 router.get('/me', requireAuth, me);
-router.put('/me', requireAuth, accountActionRateLimit, updateProfile);
-router.put('/change-password', requireAuth, accountActionRateLimit, changePassword);
+router.put('/me', requireAuth, authenticatedAccountActionRateLimit, updateProfile);
+router.put('/change-password', requireAuth, authenticatedAccountActionRateLimit, changePassword);
 router.get('/verify-email', accountActionRateLimit, verifyEmail);
-router.post('/resend-verification', requireAuth, accountActionRateLimit, resendVerification);
+router.post('/resend-verification', requireAuth, authenticatedAccountActionRateLimit, resendVerification);
 router.post('/forgot-password', accountActionRateLimit, forgotPassword);
 router.post('/reset-password', accountActionRateLimit, resetPassword);
 router.get('/2fa/status', requireAuth, twoFactorStatus);
