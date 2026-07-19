@@ -7,7 +7,7 @@
   "scripts": {
     "lint": "eslint .",
     "dev": "cross-env NODE_ENV=development node --watch server.js",
-    "start": "cross-env NODE_ENV=production node server.js",
+    "start": "node server.js",
     "test": "cross-env NODE_ENV=test DB_NAME=czone_test node --test --test-concurrency=1 --test-force-exit test/*.test.js",
     "db:init": "node sql/init.js",
     "db:migrate": "npm run db:migrate-2fa && npm run db:migrate-updated-at && npm run db:migrate-token-version && npm run db:migrate-discount-guard && npm run db:migrate-sessions && npm run db:migrate-payment-proof && npm run db:migrate-product-variants && npm run db:migrate-product-spec-overrides && npm run db:migrate-verification-expiry && npm run db:migrate-scale-indexes && npm run db:migrate-totp-replay-guard && npm run db:migrate-review-status && npm run db:migrate-product-video",
