@@ -1,7 +1,10 @@
 import crypto from 'crypto';
 import { CLOUDFLARE_SHARED_SECRET, IS_PRODUCTION } from '../config/env.js';
 
-const SECRET_HEADER = 'x-cf-shared-secret';
+// Cloudflare's Transform Rules reject setting any custom header starting with "X-CF-"/"CF-"
+// (reserved for Cloudflare's own system headers like CF-Connecting-IP, CF-Ray), so the shared
+// secret has to use a different prefix.
+const SECRET_HEADER = 'x-origin-shared-secret';
 const IP_HEADER = 'cf-connecting-ip';
 
 function timingSafeEqual(a, b) {
