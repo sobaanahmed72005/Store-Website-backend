@@ -119,6 +119,84 @@ describe('admin products and categories', () => {
       assert.ok(colorAttr);
       assert.equal(colorAttr.options.length, 2);
     });
+
+    it('rejects creating an attribute named "Brand" (reserved, collides with the automatic filter)', async () => {
+      const res = await adminAgent.post(`/api/admin/categories/${categoryId}/attributes`).send({ name: 'Brand' });
+      assert.equal(res.status, 400);
+    });
+
+    it('returns 404 renaming a nonexistent attribute', async () => {
+      const res = await adminAgent.patch('/api/admin/attributes/999999999').send({ name: 'Nope' });
+      assert.equal(res.status, 404);
+    });
+
+    it('returns 404 renaming a nonexistent option', async () => {
+      const res = await adminAgent.patch('/api/admin/options/999999999').send({ value: 'Nope' });
+      assert.equal(res.status, 404);
+    });
+
+    it('returns 404 deleting a nonexistent option', async () => {
+      const res = await adminAgent.delete('/api/admin/options/999999999');
+      assert.equal(res.status, 404);
+    });
+
+    it('returns 404 deleting a nonexistent attribute', async () => {
+      const res = await adminAgent.delete('/api/admin/attributes/999999999');
+      assert.equal(res.status, 404);
+    });
+
+    // A separate attribute/options from "Color" above, since that one (and its optionIds) is
+    // reused later by the product-creation tests — deleting it here would break those.
+    describe('rename/delete lifecycle (separate attribute)', () => {
+      let sizeAttributeId;
+      let sizeOptionIds;
+
+      it('creates an attribute with two options', async () => {
+        const attr = await adminAgent.post(`/api/admin/categories/${categoryId}/attributes`).send({ name: 'Size' });
+        assert.equal(attr.status, 201);
+        sizeAttributeId = attr.body.id;
+
+        const opt1 = await adminAgent.post(`/api/admin/attributes/${sizeAttributeId}/options`).send({ value: 'Small' });
+        const opt2 = await adminAgent.post(`/api/admin/attributes/${sizeAttributeId}/options`).send({ value: 'Large' });
+        assert.equal(opt1.status, 201);
+        assert.equal(opt2.status, 201);
+        sizeOptionIds = [opt1.body.id, opt2.body.id];
+      });
+
+      it('renames the attribute', async () => {
+        const res = await adminAgent.patch(`/api/admin/attributes/${sizeAttributeId}`).send({ name: 'Sizing' });
+        assert.equal(res.status, 200);
+
+        const list = await adminAgent.get(`/api/admin/categories/${categoryId}/attributes`);
+        assert.ok(list.body.some((a) => a.name === 'Sizing'));
+      });
+
+      it('renames an option', async () => {
+        const res = await adminAgent.patch(`/api/admin/options/${sizeOptionIds[0]}`).send({ value: 'Extra Small' });
+        assert.equal(res.status, 200);
+
+        const list = await adminAgent.get(`/api/admin/categories/${categoryId}/attributes`);
+        const sizingAttr = list.body.find((a) => a.name === 'Sizing');
+        assert.ok(sizingAttr.options.some((o) => o.value === 'Extra Small'));
+      });
+
+      it('deletes an option', async () => {
+        const res = await adminAgent.delete(`/api/admin/options/${sizeOptionIds[1]}`);
+        assert.equal(res.status, 200);
+
+        const list = await adminAgent.get(`/api/admin/categories/${categoryId}/attributes`);
+        const sizingAttr = list.body.find((a) => a.name === 'Sizing');
+        assert.equal(sizingAttr.options.length, 1);
+      });
+
+      it('deletes the attribute (cascading its remaining option)', async () => {
+        const res = await adminAgent.delete(`/api/admin/attributes/${sizeAttributeId}`);
+        assert.equal(res.status, 200);
+
+        const list = await adminAgent.get(`/api/admin/categories/${categoryId}/attributes`);
+        assert.ok(!list.body.some((a) => a.id === sizeAttributeId));
+      });
+    });
   });
 
   describe('POST /api/admin/products', () => {
