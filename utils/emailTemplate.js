@@ -25,12 +25,12 @@ export function wrapEmail(bodyHtml, { storeName = 'Our Store', preheader = '', u
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-  <title>${storeName}</title>
+  <title>${escapeHtml(storeName)}</title>
   <!--[if mso]><noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript><![endif]-->
 </head>
 <body style="margin:0;padding:0;background:${BG};font-family:Arial,Helvetica,sans-serif;color:${TEXT};">
 
-  ${preheader ? `<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">${preheader}&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;</div>` : ''}
+  ${preheader ? `<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">${escapeHtml(preheader)}&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;</div>` : ''}
 
   <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${BG};padding:32px 16px;">
     <tr>
@@ -40,7 +40,7 @@ export function wrapEmail(bodyHtml, { storeName = 'Our Store', preheader = '', u
           <!-- Header -->
           <tr>
             <td style="background:${PRIMARY};border-radius:10px 10px 0 0;padding:28px 40px;text-align:center;">
-              <h1 style="margin:0;font-size:26px;font-weight:700;color:#ffffff;letter-spacing:0.5px;">${storeName}</h1>
+              <h1 style="margin:0;font-size:26px;font-weight:700;color:#ffffff;letter-spacing:0.5px;">${escapeHtml(storeName)}</h1>
               <p style="margin:6px 0 0;font-size:12px;color:${GOLD};letter-spacing:1.5px;text-transform:uppercase;">Official Store Email</p>
             </td>
           </tr>
@@ -64,7 +64,7 @@ export function wrapEmail(bodyHtml, { storeName = 'Our Store', preheader = '', u
               <p style="margin:0 0 12px;font-size:12px;color:${MUTED};">Please check your <strong>Spam</strong> or <strong>Junk</strong> folder. If it's there, mark it as <strong>"Not Spam"</strong> so future emails reach you directly.</p>
               <p style="margin:0 0 6px;font-size:12px;color:${MUTED};">You received this email because you have an account or placed an order with us.</p>
               ${unsubscribeUrl ? `<p style="margin:0 0 10px;font-size:12px;color:${MUTED};">Don't want emails like this? <a href="${unsubscribeUrl}" style="color:${PRIMARY};">Unsubscribe</a></p>` : ''}
-              <p style="margin:0;font-size:12px;color:${MUTED};">&copy; ${new Date().getFullYear()} ${storeName}. All rights reserved.</p>
+              <p style="margin:0;font-size:12px;color:${MUTED};">&copy; ${new Date().getFullYear()} ${escapeHtml(storeName)}. All rights reserved.</p>
             </td>
           </tr>
 

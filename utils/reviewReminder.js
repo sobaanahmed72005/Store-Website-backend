@@ -45,13 +45,13 @@ export async function sendReviewReminders() {
 
         const productRows = items.map((item) => {
           const url = item.product_slug
-            ? `${storeUrl}/product/${item.product_slug}`
+            ? `${storeUrl}/product/${encodeURIComponent(item.product_slug)}`
             : storeUrl;
           return `
             <tr>
               <td style="padding:12px 20px;border-bottom:1px solid #f0f0f0;">
                 <span style="font-size:14px;color:${TEXT};display:block;margin-bottom:4px;">${escapeHtml(item.product_name)}</span>
-                <a href="${url}"
+                <a href="${escapeHtml(url)}"
                    style="font-size:13px;font-weight:700;color:${PRIMARY};text-decoration:none;">
                   ★ Write a Review →
                 </a>
