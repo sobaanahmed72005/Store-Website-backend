@@ -512,12 +512,15 @@ async function restoreOrderStock(connection, businessId, orderId) {
   }
 }
 
-// A customer who cancels before fulfillment, or later returns, never actually completed the
-// purchase — so a single-use discount code they redeemed on this order shouldn't stay permanently
-// consumed. Deleting the redemption row frees up the single_use_guard unique constraint the same
-// way it was before the code was ever used. Must run on the same connection/transaction as
-// restoreOrderStock for the same crash-safety reason (all-or-nothing with the status change).
-async function releaseDiscountCodeRedemption(connection, orderId) {
+// Only release a discount code's redemption when the order is cancelled straight from `pending`
+// (i.e. an admin never confirmed/accepted it — the order was never actually paid for). Cancelling
+// from `confirmed`/`packed`, or any `returned` transition (only reachable post-delivery), means the
+// order was accepted and the customer already got the benefit of the code; releasing it there would
+// let a code be redeemed again and again via repeated confirm-then-cancel/return, defeating the
+// single-use guarantee. Must run on the same connection/transaction as restoreOrderStock for the
+// same crash-safety reason (all-or-nothing with the status change).
+async function releaseDiscountCodeRedemption(connection, orderId, fromStatus) {
+  if (fromStatus !== 'pending') return;
   await connection.query('DELETE FROM discount_code_redemptions WHERE order_id = ?', [orderId]);
 }
 
@@ -702,7 +705,7 @@ export async function updateOrderStatus(req, res) {
 
     if (restoresStock) {
       await restoreOrderStock(connection, req.business.id, req.params.id);
-      await releaseDiscountCodeRedemption(connection, req.params.id);
+      await releaseDiscountCodeRedemption(connection, req.params.id, order.status);
       await connection.commit();
     }
   } catch (err) {
@@ -810,7 +813,7 @@ export async function applySyncedOrderStatus(businessId, orderId, currentStatus,
 
     if (applied && restoresStock) {
       await restoreOrderStock(connection, businessId, orderId);
-      await releaseDiscountCodeRedemption(connection, orderId);
+      await releaseDiscountCodeRedemption(connection, orderId, currentStatus);
       await connection.commit();
     } else if (restoresStock) {
       await connection.rollback();
