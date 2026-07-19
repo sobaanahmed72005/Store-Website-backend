@@ -27,6 +27,16 @@ export const ADMIN_PATH = process.env.ADMIN_PATH || '/mgmt-8f2k1c';
 // slug from the request's hostname (see middleware/tenant.js).
 export const DEFAULT_STORE_SLUG = process.env.DEFAULT_STORE_SLUG || null;
 
+// Proves a request actually passed through Cloudflare rather than hitting this origin directly
+// (see middleware/cloudflare.js) — required so CF-Connecting-IP (used for rate-limit keys and
+// audit logs) can't be forged by anyone who finds the raw origin URL. Set the same value here
+// and in a Cloudflare Transform Rule that adds it as a request header (see .env.example for the
+// exact rule). Only enforced in production so local dev/test isn't blocked on configuring it.
+export const CLOUDFLARE_SHARED_SECRET = process.env.CLOUDFLARE_SHARED_SECRET || null;
+if (IS_PRODUCTION && !CLOUDFLARE_SHARED_SECRET) {
+  throw new Error('CLOUDFLARE_SHARED_SECRET must be set when NODE_ENV=production (see .env.example).');
+}
+
 export const DB_HOST = process.env.DB_HOST;
 export const DB_PORT = process.env.DB_PORT;
 export const DB_USER = process.env.DB_USER;

@@ -24,6 +24,7 @@ import discountCodesRouter from './routes/discountCodes.js';
 import newsletterRouter from './routes/newsletter.js';
 import contactRouter from './routes/contact.js';
 import { resolveBusiness } from './middleware/tenant.js';
+import { requireCloudflare } from './middleware/cloudflare.js';
 import { getRobotsTxt, getSitemap } from './controllers/seoController.js';
 import { FRONTEND_URL, NODE_ENV } from './config/env.js';
 
@@ -49,13 +50,14 @@ function isAllowedOrigin(origin) {
 }
 
 const app = express();
-// Railway (see CORS comment below) puts exactly one reverse proxy in front of this process, so
-// req.ip and the rate limiters below (which key on it) need to read the client's real IP from
-// the one X-Forwarded-For hop that proxy sets, not fall back to the proxy's own IP for every
-// request — which is what happens with trust proxy left at its default of disabled, and would
-// collapse every real client behind it into a single shared rate-limit bucket. `1` trusts only
-// that one hop, unlike `true`, which would trust the whole header and let a client spoof it.
-app.set('trust proxy', 1);
+// Cloudflare sits in front of Railway's own proxy in production, so there are two hops between
+// the real client and this process, not one — trust proxy is set high enough to make Express's
+// own req.protocol/req.hostname resolution correct through both, but req.ip itself is
+// overridden more precisely below (requireCloudflare, from CF-Connecting-IP) rather than relying
+// on hop-counting alone, since that silently breaks again the moment either provider's edge
+// topology changes. `2` trusts exactly those two hops, unlike `true`, which would trust the
+// whole header and let a client spoof it.
+app.set('trust proxy', 2);
 // Logs one structured line per request on completion (method, url, status, response time,
 // request id) — the request id also shows up in req.log's output below, so a specific request's
 // completion line and any error it logged along the way can be correlated in the log stream.
@@ -92,7 +94,13 @@ app.use(cookieParser());
 app.use(express.json());
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
+// Railway's own container healthcheck (see Dockerfile) hits this directly, bypassing Cloudflare
+// — so it must stay reachable before requireCloudflare below, not after.
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
+
+// Verifies every other request actually passed through Cloudflare (see middleware/cloudflare.js)
+// before anything downstream trusts CF-Connecting-IP for rate-limit keys or audit logs.
+app.use(requireCloudflare);
 
 // Crawlers fetch these at the storefront's own root, not under /api — resolved per-tenant by hostname.
 app.get('/robots.txt', resolveBusiness, getRobotsTxt);
