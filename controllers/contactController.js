@@ -37,12 +37,12 @@ export async function sendMessage(req, res) {
     emailDivider() +
     emailParagraph(escapeHtml(message).replace(/\n/g, '<br/>'));
 
-  await sendMail({
+  res.json({ message: 'Message sent' });
+
+  sendMail({
     to: storeEmail,
     subject: subject?.trim() ? `Contact form: ${subject.trim()}` : `New message from ${name.trim()}`,
     html: wrapEmail(body, { storeName, preheader: 'New message from your website contact form' }),
     replyTo: email.trim(),
   });
-
-  res.json({ message: 'Message sent' });
 }

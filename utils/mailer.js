@@ -14,6 +14,14 @@ function getTransporter() {
       port: Number(SMTP_PORT) || 587,
       secure: Number(SMTP_PORT) === 465,
       auth: SMTP_USER ? { user: SMTP_USER, pass: SMTP_PASS } : undefined,
+      // nodemailer's defaults (2 min connection, 10 min socket) are meant for long-running batch
+      // senders — every caller here either awaits this inline in a request handler or fires it in
+      // the background off one, so a stuck SMTP connection should fail fast rather than tie up
+      // resources or (worse, if a caller ever forgets to background it) hang the HTTP response
+      // itself well past any reasonable client timeout.
+      connectionTimeout: 10_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 15_000,
     });
     return transporter;
   }

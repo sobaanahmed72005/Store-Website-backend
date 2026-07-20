@@ -510,7 +510,9 @@ export async function resendVerification(req, res) {
     [hashToken(verificationToken), verificationTokenExpires, req.user.id]
   );
 
-  const { subject, html } = await buildVerificationEmail(user.name, verificationToken, req.business.id);
-  await sendMail({ to: user.email, subject, html });
   res.json({ message: 'Verification email sent' });
+
+  buildVerificationEmail(user.name, verificationToken, req.business.id).then(({ subject, html }) => {
+    sendMail({ to: user.email, subject, html });
+  }).catch(() => {});
 }
