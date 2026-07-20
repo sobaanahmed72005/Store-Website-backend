@@ -72,7 +72,12 @@ export const ADMIN_NAME = process.env.ADMIN_NAME || 'Store Admin';
 export const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
 export const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 
-// Outgoing email (SMTP). Leave SMTP_HOST unset to log emails to the console instead of sending.
+// Outgoing email. Two transports are supported (see utils/mailer.js) — RESEND_API_KEY (HTTPS,
+// preferred when set) or SMTP_HOST (raw SMTP). Some hosts (Railway included, as of this
+// deployment) block outbound SMTP on every port at the connection level regardless of
+// credentials, which a plain HTTPS API call isn't subject to — so the API path is tried first.
+// Leave both unset to log emails to the console instead of sending.
+export const RESEND_API_KEY = process.env.RESEND_API_KEY || null;
 export const SMTP_HOST = process.env.SMTP_HOST;
 export const SMTP_PORT = process.env.SMTP_PORT;
 export const SMTP_USER = process.env.SMTP_USER;

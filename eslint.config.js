@@ -16,6 +16,7 @@ export default [
         console: 'readonly',
         Buffer: 'readonly',
         fetch: 'readonly',
+        AbortController: 'readonly',
         AbortSignal: 'readonly',
         URL: 'readonly',
         URLSearchParams: 'readonly',
