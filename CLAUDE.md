@@ -7,7 +7,7 @@ app is deployed or configured.
 
 ## What this is
 
-Express + MySQL backend for `itnetwork.pk`, an e-commerce store. Multi-tenant
+Express + MySQL backend for `itsolutions.com.pk`, an e-commerce store. Multi-tenant
 capable in the code, but this deployment runs as a **single store** (see
 "Single-store deployment" below). Paired with a separate frontend repo,
 `Store-Website-frontend` (Vite/React, served as a static build via `serve`).
@@ -23,26 +23,33 @@ blank locally.
 
 **Hosting:** Railway. Two services in one Railway project:
 - Backend (this repo) — Docker build (uses the repo's `Dockerfile`, not the
-  Nixpacks buildpack), custom domain `api.itnetwork.pk`.
+  Nixpacks buildpack), custom domain `api.itsolutions.com.pk`.
 - Frontend (`Store-Website-frontend`) — `npm run build` then `npm start`
-  (`serve -s dist -l $PORT`), custom domain `itnetwork.pk`.
+  (`serve -s dist -l $PORT`), custom domain `itsolutions.com.pk` (+ `www`).
 - MySQL — Railway's own MySQL plugin, same project. Backend's `DB_*` vars
   reference it via Railway's `${{MySQL.MYSQLHOST}}` etc. syntax, not hardcoded.
 
 **DNS/CDN:** Both domains are on Cloudflare, proxied (orange cloud). SSL/TLS
-mode is **Full (strict)**. Two domains total live on this Cloudflare account —
-`itnetwork.pk` is this project; the other is unrelated, be careful not to
-touch it when working in the Cloudflare dashboard.
+mode is **Full (strict)**. `itsolutions.com.pk` (registered via PKNIC) is this
+project's zone; there are other unrelated domains on the same Cloudflare
+account, be careful not to touch them when working in the Cloudflare
+dashboard. (This app previously ran on `itnetwork.pk`, fully migrated away
+from — that domain/zone is no longer wired to anything in this project.)
 
-**Object storage:** Cloudflare R2, bucket `itnetwork-uploads`, public access via
-custom domain `cdn.itnetwork.pk` (not the `r2.dev` URL — that one is
-rate-limited and was deliberately not used for this production deployment).
+**Object storage:** Cloudflare R2, bucket `itnetwork-uploads` (bucket name is
+a leftover from before the domain migration, harmless — bucket names aren't
+customer-visible), public access via custom domain `cdn.itsolutions.com.pk`
+(not the `r2.dev` URL — that one is rate-limited and was deliberately not
+used for this production deployment).
 
-**Outgoing email:** Resend, via SMTP (`smtp.resend.com:465`, not their REST
-API — this app uses `nodemailer`). Domain `itnetwork.pk` is verified on a
-**second, separate Resend account** (not the account used by another,
-unrelated site) — Resend's free tier only allows 1 verified domain per
-account, which is why there are two accounts.
+**Outgoing email:** Resend — prefers the HTTPS API (`RESEND_API_KEY`) over
+SMTP when both are set, since some hosts (Railway included) block outbound
+SMTP at the connection level regardless of credentials (see `utils/mailer.js`,
+commit `96ca438`). Domain `itsolutions.com.pk` is verified on a **second,
+separate Resend account** (not the account used by another, unrelated site)
+— Resend's free tier only allows 1 verified domain per account, which is why
+there are two accounts. (The `itnetwork.pk` domain verification on that
+account was deleted to free the slot when migrating to `itsolutions.com.pk`.)
 
 **Admin panel:** served at a non-default obfuscated path — see `ADMIN_PATH` in
 the actual `.env`/Railway vars (not documented here on purpose, since this file
@@ -73,16 +80,18 @@ Cloudflare's `CF-Connecting-IP` header. This exists because:
 - Entirely gated on `NODE_ENV=production` — a no-op in dev/test, so this
   never needs configuring locally.
 
-If `api.itnetwork.pk` ever starts returning 403 "Forbidden" on everything, the
-first thing to check is whether the Transform Rule is still active and the
-secret values still match on both sides — not a code bug by default.
+If `api.itsolutions.com.pk` ever starts returning 403 "Forbidden" on
+everything, the first thing to check is whether the Transform Rule is still
+active (recreated on the current zone during the domain migration — Transform
+Rules don't carry over automatically between zones) and the secret values
+still match on both sides — not a code bug by default.
 
 ## Single-store deployment: `DEFAULT_STORE_SLUG`
 
 `middleware/tenant.js` normally derives the "store" from the request's
 hostname (splits on `.`, takes the first segment) — that works for
 subdomain-per-tenant setups, but breaks here because the frontend
-(`itnetwork.pk`) and backend (`api.itnetwork.pk`) are on different
+(`itsolutions.com.pk`) and backend (`api.itsolutions.com.pk`) are on different
 hostnames/subdomains. `DEFAULT_STORE_SLUG=main` is set on the backend to skip
 that hostname-guessing entirely and always resolve to the one business seeded
 by `db:init` (slug `main`). If this ever gets unset, every API request will
@@ -98,6 +107,15 @@ start 404ing with `"Store not found"` — this bit us once already during setup.
   (`Credential access key has length 33, should be 32`) — if this error ever
   reappears, it's almost always a copy-paste issue with `S3_SECRET_ACCESS_KEY`
   or `S3_ACCESS_KEY_ID`, not a code problem.
+- Migrated production from `itnetwork.pk` to `itsolutions.com.pk` (2026-07).
+  Pure config/DNS migration, no code changes were needed — every domain
+  reference in this app is env-var driven. Two Railway-specific snags hit
+  along the way, in case they recur on a future migration: (1) Railway caps
+  custom domains per service, so `www.<domain>` couldn't be added to the
+  frontend service until the old domain's entry was removed first; (2)
+  Cloudflare Transform Rules are per-zone, so the `X-Origin-Shared-Secret`
+  rule had to be recreated by hand on the new zone — it doesn't carry over
+  from the old one.
 
 ## Where to look for more
 
