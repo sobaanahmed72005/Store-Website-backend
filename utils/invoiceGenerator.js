@@ -96,8 +96,8 @@ export async function generateInvoicePdf(orderId, businessId) {
     let logoEndX = M
     if (logoBuf) {
       try {
-        doc.image(logoBuf, M, 18, { height: 48, fit: [72, 48] })
-        logoEndX = M + 82
+        doc.image(logoBuf, M, 19, { height: 74, fit: [160, 74] })
+        logoEndX = M + 172
       } catch { /* bad image — skip */ }
     }
 
