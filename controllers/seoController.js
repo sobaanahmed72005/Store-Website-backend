@@ -1,6 +1,5 @@
 import pool from '../config/db.js';
 import { buildStoreUrl } from '../utils/storeUrl.js';
-import { ADMIN_PATH } from '../config/env.js';
 
 // /shop is the canonical all-products listing (see src/pages/Products.jsx); /products
 // itself is a near-duplicate that canonicalizes to it, so it's excluded here.
@@ -15,10 +14,11 @@ const STATIC_PATHS = [
 
 export async function getRobotsTxt(req, res) {
   const origin = buildStoreUrl(req.business.slug);
-  const adminPath = ADMIN_PATH;
   const lines = [
     'User-agent: *',
-    `Disallow: ${adminPath}`,
+    // Deliberately not listing ADMIN_PATH here — a Disallow entry is public and would broadcast
+    // the exact path to anyone reading robots.txt, defeating the obscurity it relies on (see
+    // config/env.js). It's not linked from anywhere, so crawlers won't discover it on their own.
     'Disallow: /checkout',
     'Disallow: /cart',
     'Disallow: /account',
