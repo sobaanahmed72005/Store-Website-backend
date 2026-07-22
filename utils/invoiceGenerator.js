@@ -101,8 +101,10 @@ export async function generateInvoicePdf(orderId, businessId) {
       } catch { /* bad image — skip */ }
     }
 
-    doc.font('Helvetica-Bold').fontSize(19).fillColor('#ffffff')
-       .text(siteName || 'Invoice', logoEndX, 22, { width: 230 })
+    if (!logoBuf) {
+      doc.font('Helvetica-Bold').fontSize(19).fillColor('#ffffff')
+         .text(siteName || 'Invoice', logoEndX, 22, { width: 230 })
+    }
 
     let sY = 48
     doc.font('Helvetica-Bold').fontSize(8.5).fillColor(GOLD)
