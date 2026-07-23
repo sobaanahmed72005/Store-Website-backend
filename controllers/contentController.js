@@ -7,6 +7,7 @@ const DEFAULTS = {
   'site-settings': {
     siteName: 'My Store',
     logo: null,
+    favicon: null,
   },
   'currency-settings': {
     enabled: ['PKR', 'USD', 'GBP', 'AED'],
@@ -178,7 +179,7 @@ export async function getContent(req, res) {
 // can't be used to stuff an arbitrarily large blob into a row.
 const MAX_CONTENT_BYTES = 200_000;
 const FIELD_SHAPES = {
-  'site-settings': { siteName: 'string', logo: 'string' },
+  'site-settings': { siteName: 'string', logo: 'string', favicon: 'string' },
   'payment-settings': { methods: 'object' },
   'hero-banners': { slides: 'array', sideBanners: 'array' },
   'footer-brand': { columns: 'array', social: 'object' },

@@ -1,6 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { sanitizeImageBuffer } from './imageProcessing.js';
+import { sanitizeImageBuffer, extractIconCrop } from './imageProcessing.js';
 import { verifyUploadedVideo } from './videoProcessing.js';
 import { uploadsDir, paymentProofsDir } from '../middleware/upload.js';
 import { isObjectStorageConfigured, putObject, publicUrlFor } from './objectStorage.js';
@@ -16,14 +16,28 @@ const VIDEO_CONTENT_TYPE_BY_FORMAT = { mp4: 'video/mp4', webm: 'video/webm' };
 async function processUpload(req, res, { isPaymentProof }) {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
+  const isLogo = req.body?.purpose === 'logo';
+  // A dedicated favicon upload (for logos where extractIconCrop below can't find a clean split —
+  // e.g. a glow/wordmark design with no real transparent gap between the icon and the text) is
+  // already meant to be the icon, so it gets trimmed like a logo but is never run back through
+  // extractIconCrop itself.
+  const isFavicon = req.body?.purpose === 'favicon';
   let buffer, format;
   try {
-    ({ buffer, format } = await sanitizeImageBuffer(req.file.buffer, { trim: req.body?.purpose === 'logo' }));
+    ({ buffer, format } = await sanitizeImageBuffer(req.file.buffer, { trim: isLogo || isFavicon }));
   } catch {
     return res.status(400).json({ error: 'That file is not a valid image' });
   }
 
+  // Best-effort: a logo without a separable icon segment (e.g. a plain wordmark) just doesn't
+  // get a favicon crop, and the caller falls back to the full logo — never a hard failure.
+  let iconBuffer = null;
+  if (isLogo) {
+    try { iconBuffer = await extractIconCrop(buffer, format); } catch { /* no crop, fall back to full logo */ }
+  }
+
   const filename = `${Date.now()}-${Math.round(Math.random() * 1e9)}.${format}`;
+  const iconFilename = iconBuffer ? `${Date.now()}-${Math.round(Math.random() * 1e9)}-icon.${format}` : null;
 
   if (isObjectStorageConfigured) {
     const key = `${isPaymentProof ? 'payment-proofs' : 'uploads'}/${filename}`;
@@ -31,13 +45,26 @@ async function processUpload(req, res, { isPaymentProof }) {
     // Payment proofs always go back through our own authenticated route regardless of storage
     // backend — only the backing bytes move to object storage, never public reachability.
     const url = isPaymentProof ? `/orders/payment-proof/${filename}` : publicUrlFor(key);
-    return res.status(201).json({ url });
+
+    let faviconUrl;
+    if (iconBuffer) {
+      const iconKey = `uploads/${iconFilename}`;
+      await putObject(iconKey, iconBuffer, CONTENT_TYPE_BY_FORMAT[format]);
+      faviconUrl = publicUrlFor(iconKey);
+    }
+    return res.status(201).json(faviconUrl ? { url, faviconUrl } : { url });
   }
 
   const dir = isPaymentProof ? paymentProofsDir : uploadsDir;
   await fs.writeFile(path.join(dir, filename), buffer);
   const url = isPaymentProof ? `/orders/payment-proof/${filename}` : `/uploads/${filename}`;
-  res.status(201).json({ url });
+
+  let faviconUrl;
+  if (iconBuffer) {
+    await fs.writeFile(path.join(uploadsDir, iconFilename), iconBuffer);
+    faviconUrl = `/uploads/${iconFilename}`;
+  }
+  res.status(201).json(faviconUrl ? { url, faviconUrl } : { url });
 }
 
 export const handleImageUpload = (req, res) => processUpload(req, res, { isPaymentProof: false });
