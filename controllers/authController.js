@@ -6,7 +6,7 @@ import { sendMail } from '../utils/mailer.js';
 import { wrapEmail, emailGreeting, emailButton, emailParagraph, emailDivider } from '../utils/emailTemplate.js';
 import { getEmailTemplate, applyPlaceholders } from '../utils/emailLoader.js';
 import { getSiteName } from './contentController.js';
-import { REFRESH_COOKIE, ACCESS_TOKEN_MAX_AGE, setAuthCookies, clearAuthCookies } from '../utils/authCookies.js';
+import { REFRESH_COOKIE, ADMIN_REFRESH_COOKIE, ACCESS_TOKEN_MAX_AGE, setAuthCookies, clearAuthCookies } from '../utils/authCookies.js';
 import { encryptSecret, decryptSecret } from '../utils/crypto.js';
 import { generateTotpSecret, verifyTotpToken, buildOtpAuthQrCode, generateRecoveryCodes } from '../utils/totp.js';
 import { createChallengeStore } from '../utils/challengeStore.js';
@@ -49,7 +49,9 @@ function issueSession(res, user, businessId, sessionId) {
     JWT_SECRET,
     { expiresIn: ACCESS_TOKEN_MAX_AGE / 1000 }
   );
-  setAuthCookies(res, token, sessionId);
+  // Which cookie pair this lands in (customer vs admin) is driven entirely by the user's role —
+  // see utils/authCookies.js for why the two must never share a pair.
+  setAuthCookies(res, token, sessionId, user.role);
   return accessTokenExpiresAt;
 }
 
@@ -244,11 +246,14 @@ export async function me(req, res) {
 const recentRotations = new Map(); // oldSessionId -> { newSessionId, user, expiresAt }
 const ROTATION_GRACE_MS = 10_000;
 
-export async function refresh(req, res) {
+// Shared by the customer and admin refresh endpoints — which specific refresh cookie to read is
+// the only thing that differs between them (see refresh/adminRefresh below); everything past that
+// point (rotation, revocation, re-issuing) is identical regardless of who's refreshing.
+async function performRefresh(req, res, refreshCookieName) {
   // The refresh cookie is just the session id itself (see utils/sessions.js / authCookies.js)
   // — this is the one DB round-trip per ~15-minute access-token lifetime that replaces what
   // used to be a query on every single authenticated request.
-  const sessionId = req.cookies?.[REFRESH_COOKIE];
+  const sessionId = req.cookies?.[refreshCookieName];
   if (!sessionId) return res.status(401).json({ error: 'Not signed in' });
 
   const recent = recentRotations.get(sessionId);
@@ -265,7 +270,10 @@ export async function refresh(req, res) {
     [sessionId]
   );
   if (rows.length === 0) {
-    clearAuthCookies(res);
+    // Cleared by role, not by guessing from the request — a not-found/revoked session here still
+    // came in on refreshCookieName, so that's the pair (customer or admin) that actually needs
+    // clearing on this response.
+    clearAuthCookies(res, refreshCookieName === ADMIN_REFRESH_COOKIE ? 'admin' : 'customer');
     return res.status(401).json({ error: 'Session expired, please sign in again' });
   }
 
@@ -288,15 +296,33 @@ export async function refresh(req, res) {
   res.json({ message: 'Refreshed', accessTokenExpiresAt });
 }
 
-export async function logout(req, res) {
+export async function refresh(req, res) {
+  return performRefresh(req, res, REFRESH_COOKIE);
+}
+
+// Admin panel's own refresh, reading only the admin refresh cookie — kept as a distinct route/
+// cookie from the customer flow above so the two sessions can never interfere with each other.
+export async function adminRefresh(req, res) {
+  return performRefresh(req, res, ADMIN_REFRESH_COOKIE);
+}
+
+async function performLogout(req, res, refreshCookieName, role) {
   // Revokes only this one session (device), not every session on the account — logging
   // out on a phone shouldn't also sign the same user out of their laptop. Reads the session
   // id straight from the refresh cookie rather than decoding the access token, since the
   // access token is often already expired (15-minute lifetime) by the time someone logs out.
-  const sessionId = req.cookies?.[REFRESH_COOKIE];
+  const sessionId = req.cookies?.[refreshCookieName];
   if (sessionId) await revokeSession(sessionId).catch(() => {});
-  clearAuthCookies(res);
+  clearAuthCookies(res, role);
   res.json({ message: 'Logged out' });
+}
+
+export async function logout(req, res) {
+  return performLogout(req, res, REFRESH_COOKIE, 'customer');
+}
+
+export async function adminLogout(req, res) {
+  return performLogout(req, res, ADMIN_REFRESH_COOKIE, 'admin');
 }
 
 export async function twoFactorStatus(req, res) {
