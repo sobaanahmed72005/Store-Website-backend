@@ -18,7 +18,7 @@ async function processUpload(req, res, { isPaymentProof }) {
 
   let buffer, format;
   try {
-    ({ buffer, format } = await sanitizeImageBuffer(req.file.buffer));
+    ({ buffer, format } = await sanitizeImageBuffer(req.file.buffer, { trim: req.body?.purpose === 'logo' }));
   } catch {
     return res.status(400).json({ error: 'That file is not a valid image' });
   }
