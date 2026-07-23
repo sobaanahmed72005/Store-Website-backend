@@ -1,10 +1,10 @@
 import express from 'express';
-import { requireAuth } from '../middleware/auth.js';
+import { requireCustomer } from '../middleware/auth.js';
 import { getWishlist, addToWishlist, removeFromWishlist } from '../controllers/wishlistController.js';
 
 const router = express.Router();
 
-router.use(requireAuth);
+router.use(requireCustomer);
 
 router.get('/', getWishlist);
 router.post('/', addToWishlist);

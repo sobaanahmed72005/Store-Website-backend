@@ -64,10 +64,35 @@ export function requireAdmin(req, res, next) {
   });
 }
 
+// Storefront-only actions (placing an order, wishlist, writing a review) must never succeed
+// under an admin's identity — a stray admin session cookie picked up by a storefront tab (see
+// requireAuth's untrusted-origin check above for the sibling CSRF concern) should not be able to
+// check out "as" the admin account. requireAuth alone isn't enough here since it accepts any role.
+export function requireCustomer(req, res, next) {
+  requireAuth(req, res, () => {
+    if (req.user.role !== 'customer') return res.status(403).json({ error: 'Customer account required' });
+    next();
+  });
+}
+
 export function requireSelfOrAdmin(paramName) {
   return (req, res, next) => {
     requireAuth(req, res, () => {
       if (req.user.role === 'admin' || String(req.user.id) === String(req.params[paramName])) return next();
+      return res.status(403).json({ error: 'Forbidden' });
+    });
+  };
+}
+
+// Like requireSelfOrAdmin, but for storefront actions that only ever make sense for the caller's
+// own account (e.g. writing your own cart) — unlike requireSelfOrAdmin, an admin's "self" match
+// is NOT accepted here, since an admin has no legitimate cart of their own and this is exactly
+// the gap that let a stray admin session cookie write/checkout under the admin's account (see
+// requireCustomer above).
+export function requireSelfCustomer(paramName) {
+  return (req, res, next) => {
+    requireAuth(req, res, () => {
+      if (req.user.role === 'customer' && String(req.user.id) === String(req.params[paramName])) return next();
       return res.status(403).json({ error: 'Forbidden' });
     });
   };
