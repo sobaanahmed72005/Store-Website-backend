@@ -464,7 +464,7 @@ export async function getOrderById(req, res) {
   res.json({ ...hideBookingClaim(orders[0]), items });
 }
 
-const VALID_STATUSES = ['pending_payment', 'pending', 'confirmed', 'packed', 'shipped', 'out_for_delivery', 'delivered', 'returned', 'cancelled'];
+const VALID_STATUSES = ['pending', 'confirmed', 'packed', 'shipped', 'out_for_delivery', 'delivered', 'returned', 'cancelled'];
 
 export const STATUS_TRANSITIONS = {
   pending:           ['confirmed', 'cancelled'],
@@ -475,7 +475,6 @@ export const STATUS_TRANSITIONS = {
   delivered:         ['returned'],
   returned:          [],
   cancelled:         [],
-  pending_payment:   [],
 };
 
 // Both terminal "give the stock back" transitions — cancelling before fulfillment, or a

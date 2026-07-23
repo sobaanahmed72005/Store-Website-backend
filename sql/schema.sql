@@ -134,7 +134,7 @@ CREATE TABLE IF NOT EXISTS orders (
   shipping_fee DECIMAL(10,2) NOT NULL DEFAULT 0,
   discount_code VARCHAR(50),
   discount_amount DECIMAL(10,2) NOT NULL DEFAULT 0,
-  status ENUM('pending_payment','pending','confirmed','packed','shipped','out_for_delivery','delivered','returned','cancelled') DEFAULT 'pending',
+  status ENUM('pending','confirmed','packed','shipped','out_for_delivery','delivered','returned','cancelled') DEFAULT 'pending',
   shipping_name VARCHAR(150),
   shipping_address VARCHAR(255) NOT NULL,
   shipping_city VARCHAR(100),

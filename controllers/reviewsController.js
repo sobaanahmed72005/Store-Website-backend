@@ -6,7 +6,7 @@ async function hasPurchased(businessId, userId, productId) {
     `SELECT 1 FROM orders o
      JOIN order_items oi ON oi.order_id = o.id
      WHERE o.business_id = ? AND o.user_id = ? AND oi.product_ref = ?
-       AND o.status NOT IN ('cancelled', 'pending_payment')
+       AND o.status != 'cancelled'
      LIMIT 1`,
     [businessId, userId, String(productId)],
   );
