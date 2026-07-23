@@ -263,6 +263,22 @@ CREATE TABLE IF NOT EXISTS product_images (
   FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
 );
 
+-- Free-form admin-typed key/value bullets (e.g. "Battery" -> "5000mAh"), shown in the same
+-- Specifications table as the category-attribute-derived rows (see attachAttributeOptionIds in
+-- productsController.js). Deliberately independent of category_attributes/product_spec_overrides
+-- above — those exist to drive storefront filters and variant pricing and require a category-wide
+-- attribute/option taxonomy to be defined first; this is just a plain per-product list an admin
+-- can fill in directly with no setup.
+CREATE TABLE IF NOT EXISTS product_specs (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  product_id INT NOT NULL,
+  label VARCHAR(100) NOT NULL,
+  value VARCHAR(255) NOT NULL,
+  sort_order INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS product_reviews (
   id INT AUTO_INCREMENT PRIMARY KEY,
   business_id INT NOT NULL,

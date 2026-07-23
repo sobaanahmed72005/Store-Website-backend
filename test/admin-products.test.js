@@ -251,6 +251,34 @@ describe('admin products and categories', () => {
       const [rows] = await pool.query('SELECT option_id FROM product_attribute_values WHERE product_id = ?', [res.body.id]);
       assert.equal(rows.length, 2);
     });
+
+    it('rejects a key spec with only a label or only a value', async () => {
+      const res = await adminAgent.post('/api/admin/products').send({
+        name: 'Bad Key Spec', slug: `bad-key-spec-${Date.now()}`, price: 100,
+        key_specs: [{ label: 'Battery', value: '' }],
+      });
+      assert.equal(res.status, 400);
+    });
+
+    it('creates a product with key specs and returns them merged into specifications', async () => {
+      const res = await adminAgent.post('/api/admin/products').send({
+        name: 'Test Widget With Specs', slug: `test-widget-specs-${Date.now()}`, price: 400,
+        key_specs: [{ label: 'Battery', value: '5000mAh' }, { label: 'RAM', value: '8GB' }],
+      });
+      assert.equal(res.status, 201);
+      createdProductIds.push(res.body.id);
+
+      const getRes = await adminAgent.get(`/api/admin/products/${res.body.id}`);
+      assert.equal(getRes.status, 200);
+      assert.deepEqual(getRes.body.key_specs.map((s) => ({ label: s.label, value: s.value })), [
+        { label: 'Battery', value: '5000mAh' },
+        { label: 'RAM', value: '8GB' },
+      ]);
+      assert.deepEqual(getRes.body.specifications, [
+        { attribute: 'Battery', value: '5000mAh' },
+        { attribute: 'RAM', value: '8GB' },
+      ]);
+    });
   });
 
   describe('PUT/DELETE /api/admin/products/:id', () => {
@@ -259,6 +287,24 @@ describe('admin products and categories', () => {
         name: 'Test Widget Updated', slug: `test-widget-updated-${Date.now()}`, price: 600,
       });
       assert.equal(res.status, 200);
+    });
+
+    it('replaces key specs on update (delete-then-reinsert)', async () => {
+      const create = await adminAgent.post('/api/admin/products').send({
+        name: 'Test Widget Specs Update', slug: `test-widget-specs-update-${Date.now()}`, price: 200,
+        key_specs: [{ label: 'Color', value: 'Black' }],
+      });
+      assert.equal(create.status, 201);
+      createdProductIds.push(create.body.id);
+
+      const update = await adminAgent.put(`/api/admin/products/${create.body.id}`).send({
+        name: 'Test Widget Specs Update', slug: `test-widget-specs-update-2-${Date.now()}`, price: 200,
+        key_specs: [{ label: 'Color', value: 'White' }],
+      });
+      assert.equal(update.status, 200);
+
+      const getRes = await adminAgent.get(`/api/admin/products/${create.body.id}`);
+      assert.deepEqual(getRes.body.key_specs.map((s) => ({ label: s.label, value: s.value })), [{ label: 'Color', value: 'White' }]);
     });
 
     it('returns 404 updating a nonexistent product', async () => {

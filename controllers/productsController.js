@@ -91,6 +91,26 @@ function variantEffectivePrice(variant) {
     : Number(variant.price);
 }
 
+// Free-form admin-typed spec rows (see product_specs in schema.sql) — merged into the same
+// `specifications` list attachAttributeOptionIds already built, listed first since they're what
+// the admin explicitly curated as highlights rather than incidental filter/variant metadata. Must
+// run after attachAttributeOptionIds so `row.specifications` already exists to merge into.
+async function attachKeySpecs(rows) {
+  if (rows.length === 0) return rows;
+  const [specs] = await pool.query(
+    `SELECT id, product_id, label, value FROM product_specs WHERE product_id IN (${rows.map(() => '?').join(',')}) ORDER BY sort_order, id`,
+    rows.map((r) => r.id)
+  );
+  return rows.map((row) => {
+    const rowSpecs = specs.filter((s) => s.product_id === row.id);
+    return {
+      ...row,
+      key_specs: rowSpecs.map((s) => ({ id: s.id, label: s.label, value: s.value })),
+      specifications: [...rowSpecs.map((s) => ({ attribute: s.label, value: s.value })), ...(row.specifications || [])],
+    };
+  });
+}
+
 async function attachGalleryImages(rows) {
   if (rows.length === 0) return rows;
   const [images] = await pool.query(
@@ -121,7 +141,7 @@ async function attachReviewStats(rows) {
 }
 
 async function attachExtras(rows) {
-  return attachHasVariants(await attachReviewStats(await attachGalleryImages(await attachAttributeOptionIds(rows))));
+  return attachHasVariants(await attachReviewStats(await attachGalleryImages(await attachKeySpecs(await attachAttributeOptionIds(rows)))));
 }
 
 async function attachSingleProductExtras(rows) {
@@ -212,6 +232,33 @@ async function setProductSpecOverrides(connection, productId, specOverrides) {
   if (entries.length === 0) return;
   const values = entries.map(([name, value]) => [productId, name, String(value).trim()]);
   await connection.query('INSERT INTO product_spec_overrides (product_id, attribute_name, value) VALUES ?', [values]);
+}
+
+// keySpecs is [{ label, value }] from the admin form's free-form Key Specifications editor —
+// completely separate from the category-attribute machinery above. validateKeySpecs (below)
+// already rejected any row with only one of label/value filled, so a fully-blank row is the only
+// thing this needs to silently drop (an admin clicking "+ Add" and then not filling it in).
+async function setProductKeySpecs(connection, productId, keySpecs) {
+  await connection.query('DELETE FROM product_specs WHERE product_id = ?', [productId]);
+  const entries = (keySpecs || [])
+    .map((s) => ({ label: String(s?.label ?? '').trim(), value: String(s?.value ?? '').trim() }))
+    .filter((s) => s.label !== '' && s.value !== '');
+  if (entries.length === 0) return;
+  const values = entries.map((s, index) => [productId, s.label, s.value, index]);
+  await connection.query('INSERT INTO product_specs (product_id, label, value, sort_order) VALUES ?', [values]);
+}
+
+function validateKeySpecs(keySpecs) {
+  if (!keySpecs?.length) return null;
+  for (const s of keySpecs) {
+    const label = String(s?.label ?? '').trim();
+    const value = String(s?.value ?? '').trim();
+    if (label === '' && value === '') continue; // fully-blank row, dropped silently by setProductKeySpecs
+    if (label === '' || value === '') return 'Each key specification needs both a label and a value';
+    if (label.length > 100) return 'Each key specification label must be 100 characters or fewer';
+    if (value.length > 255) return 'Each key specification value must be 255 characters or fewer';
+  }
+  return null;
 }
 
 // A parent category page should show products from that category AND all of its subcategories
@@ -388,7 +435,7 @@ export async function getProductBySlug(req, res) {
 export async function createProduct(req, res) {
   const {
     category_id, name, slug, brand, description, price, discount_price, stock, image, video,
-    is_featured, is_new_arrival, is_on_sale, attribute_option_ids, images, variants, spec_overrides,
+    is_featured, is_new_arrival, is_on_sale, attribute_option_ids, images, variants, spec_overrides, key_specs,
   } = req.body;
   if (!name || !slug || price == null) {
     return res.status(400).json({ error: 'name, slug and price are required' });
@@ -396,6 +443,9 @@ export async function createProduct(req, res) {
 
   const variantError = validateVariants(variants);
   if (variantError) return res.status(400).json({ error: variantError });
+
+  const keySpecsError = validateKeySpecs(key_specs);
+  if (keySpecsError) return res.status(400).json({ error: keySpecsError });
 
   // Once a product has variants, the base row's price/stock are derived, not admin-entered:
   // price is the cheapest effective variant price (a truthful "starting from" figure for grid/
@@ -430,6 +480,7 @@ export async function createProduct(req, res) {
     await setProductImages(connection, result.insertId, images);
     await setProductVariants(connection, req.business.id, result.insertId, variants);
     await setProductSpecOverrides(connection, result.insertId, spec_overrides);
+    await setProductKeySpecs(connection, result.insertId, key_specs);
     await connection.commit();
     res.status(201).json({ id: result.insertId });
     logAudit({ req, action: 'product.create', entityType: 'product', entityId: result.insertId, details: { name, price: effectivePrice, stock: effectiveStock ?? 0 } });
@@ -489,7 +540,7 @@ async function notifyPriceDrop(businessId, productId, newPrice) {
 export async function updateProduct(req, res) {
   const {
     category_id, name, slug, brand, description, price, discount_price, stock, image, video,
-    is_featured, is_new_arrival, is_on_sale, attribute_option_ids, images, variants, spec_overrides,
+    is_featured, is_new_arrival, is_on_sale, attribute_option_ids, images, variants, spec_overrides, key_specs,
   } = req.body;
 
   if (!name || !slug || price == null) {
@@ -498,6 +549,9 @@ export async function updateProduct(req, res) {
 
   const variantError = validateVariants(variants);
   if (variantError) return res.status(400).json({ error: variantError });
+
+  const keySpecsError = validateKeySpecs(key_specs);
+  if (keySpecsError) return res.status(400).json({ error: keySpecsError });
 
   const effectivePrice = variants?.length ? Math.min(...variants.map(variantEffectivePrice)) : price;
   const effectiveStock = variants?.length ? variants.reduce((sum, v) => sum + Number(v.stock || 0), 0) : stock;
@@ -543,6 +597,7 @@ export async function updateProduct(req, res) {
     await setProductImages(connection, req.params.id, images);
     await setProductVariants(connection, req.business.id, req.params.id, variants);
     await setProductSpecOverrides(connection, req.params.id, spec_overrides);
+    await setProductKeySpecs(connection, req.params.id, key_specs);
     await connection.commit();
     res.json({ message: 'Product updated' });
     logAudit({
