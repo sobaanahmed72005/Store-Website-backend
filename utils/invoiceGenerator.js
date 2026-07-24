@@ -93,31 +93,31 @@ export async function generateInvoicePdf(orderId, businessId) {
     // ── Header (site teal background) ────────────────────────────────────
     doc.rect(0, 0, W, 112).fill(HEADER_BG)
 
-    let logoEndX = M
+    // Logo sits directly above the domain/address/phone/email column (both anchored at M), not
+    // beside it — `fit` alone (no separate `height`) caps it to a fixed box regardless of the
+    // source image's aspect ratio, so a wide wordmark-style logo or a square icon-style one both
+    // land within the same reserved band and never run into the text starting at sY below.
     if (logoBuf) {
       try {
-        doc.image(logoBuf, M, 19, { height: 74, fit: [160, 74] })
-        logoEndX = M + 172
+        doc.image(logoBuf, M, 10, { fit: [140, 34] })
       } catch { /* bad image — skip */ }
-    }
-
-    if (!logoBuf) {
+    } else {
       doc.font('Helvetica-Bold').fontSize(19).fillColor('#ffffff')
-         .text(siteName || 'Invoice', logoEndX, 22, { width: 230 })
+         .text(siteName || 'Invoice', M, 22, { width: 230 })
     }
 
     let sY = 48
     doc.font('Helvetica-Bold').fontSize(8.5).fillColor(GOLD)
-       .text(websiteUrl, logoEndX, sY, { width: 230 })
+       .text(websiteUrl, M, sY, { width: 230 })
     sY += 12
 
     doc.font('Helvetica').fontSize(8.5).fillColor('#bcd8de')
     if (storeAddress) {
-      doc.text(storeAddress, logoEndX, sY, { width: 230 })
+      doc.text(storeAddress, M, sY, { width: 230 })
       sY += doc.heightOfString(storeAddress, { width: 230 }) + 2
     }
-    if (storePhone)   { doc.text(storePhone,   logoEndX, sY); sY += 12 }
-    if (storeEmail)   { doc.text(storeEmail,   logoEndX, sY) }
+    if (storePhone)   { doc.text(storePhone,   M, sY); sY += 12 }
+    if (storeEmail)   { doc.text(storeEmail,   M, sY) }
 
     doc.font('Helvetica-Bold').fontSize(26).fillColor(GOLD)
        .text('INVOICE', M, 34, { width: UW, align: 'right' })
