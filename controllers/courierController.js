@@ -192,11 +192,11 @@ export async function bookLeopardsPacket(businessId, order) {
     shipment_email: 'self',
     shipment_phone: 'self',
     shipment_address: 'self',
-    consignment_name: order.shipping_name || order.customer_name || 'Customer',
+    consignment_name_eng: order.shipping_name || order.customer_name || 'Customer',
     consignment_email: order.email || order.customer_email || '',
     consignment_phone: order.phone || '',
     consignment_address: order.shipping_address || '',
-    special_instructions: order.notes || '',
+    special_instructions: order.notes || 'N/A',
   };
   if (settings.shipper_id) params.shipment_id = settings.shipper_id;
 
