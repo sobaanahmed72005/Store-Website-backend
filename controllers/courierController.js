@@ -177,7 +177,8 @@ export async function bookLeopardsPacket(businessId, order) {
   if (!destinationCity) throw new Error('This order has no shipping city set — cannot book with Leopards.');
 
   const cities = await getLeopardsCities(businessId, settings).catch(() => null);
-  if (cities && !findLeopardsCityMatch(cities, destinationCity)) {
+  const destinationCityMatch = cities ? findLeopardsCityMatch(cities, destinationCity) : null;
+  if (cities && !destinationCityMatch) {
     throw new Error(`Leopards doesn't recognize the shipping city "${destinationCity}". Check the spelling on this order or book manually.`);
   }
 
@@ -187,7 +188,13 @@ export async function bookLeopardsPacket(businessId, order) {
     booked_packet_collect_amount: order.payment_method === 'cod' ? String(Math.round(Number(order.total_amount) || 0)) : '0',
     booked_packet_order_id: String(order.id),
     origin_city: settings.origin_city || 'self',
-    destination_city: destinationCity,
+    // Leopards' bookPacket expects a numeric city ID here, not the display name — the name-based
+    // match above is only used to look up that ID (and to give a clearer error when it's not
+    // found at all). Falls back to the raw name if the lookup itself failed (e.g. getAllCities
+    // was unreachable), since that's the best-effort behavior this already had before.
+    destination_city: destinationCityMatch
+      ? String(destinationCityMatch.city_id ?? destinationCityMatch.id ?? destinationCity)
+      : destinationCity,
     shipment_name_eng: 'self',
     shipment_email: 'self',
     shipment_phone: 'self',
