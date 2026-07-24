@@ -252,10 +252,10 @@ describe('admin products and categories', () => {
       assert.equal(rows.length, 2);
     });
 
-    it('rejects a key spec with only a label or only a value', async () => {
+    it('rejects a key spec that has a value but no label', async () => {
       const res = await adminAgent.post('/api/admin/products').send({
         name: 'Bad Key Spec', slug: `bad-key-spec-${Date.now()}`, price: 100,
-        key_specs: [{ label: 'Battery', value: '' }],
+        key_specs: [{ label: '', value: 'Waterproof' }],
       });
       assert.equal(res.status, 400);
     });
@@ -278,6 +278,23 @@ describe('admin products and categories', () => {
         { attribute: 'Battery', value: '5000mAh' },
         { attribute: 'RAM', value: '8GB' },
       ]);
+    });
+
+    // A label with no value is a plain bullet point (e.g. "Waterproof"), not a "Label: Value"
+    // pair — valid on its own, unlike the value-with-no-label case above.
+    it('creates a product with a label-only key spec (no value)', async () => {
+      const res = await adminAgent.post('/api/admin/products').send({
+        name: 'Test Widget Bullet Spec', slug: `test-widget-bullet-spec-${Date.now()}`, price: 250,
+        key_specs: [{ label: 'Waterproof', value: '' }],
+      });
+      assert.equal(res.status, 201);
+      createdProductIds.push(res.body.id);
+
+      const getRes = await adminAgent.get(`/api/admin/products/${res.body.id}`);
+      assert.deepEqual(getRes.body.key_specs.map((s) => ({ label: s.label, value: s.value })), [
+        { label: 'Waterproof', value: '' },
+      ]);
+      assert.deepEqual(getRes.body.specifications, [{ attribute: 'Waterproof', value: '' }]);
     });
   });
 

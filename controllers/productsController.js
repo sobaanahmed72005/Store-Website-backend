@@ -235,14 +235,15 @@ async function setProductSpecOverrides(connection, productId, specOverrides) {
 }
 
 // keySpecs is [{ label, value }] from the admin form's free-form Key Specifications editor —
-// completely separate from the category-attribute machinery above. validateKeySpecs (below)
-// already rejected any row with only one of label/value filled, so a fully-blank row is the only
-// thing this needs to silently drop (an admin clicking "+ Add" and then not filling it in).
+// completely separate from the category-attribute machinery above. A label with no value is a
+// plain bullet point (e.g. "Waterproof") rather than a "Label: Value" pair — valid on its own,
+// per validateKeySpecs below. A fully-blank row (an admin clicking "+ Add" and not filling it in)
+// is the only thing this silently drops.
 async function setProductKeySpecs(connection, productId, keySpecs) {
   await connection.query('DELETE FROM product_specs WHERE product_id = ?', [productId]);
   const entries = (keySpecs || [])
     .map((s) => ({ label: String(s?.label ?? '').trim(), value: String(s?.value ?? '').trim() }))
-    .filter((s) => s.label !== '' && s.value !== '');
+    .filter((s) => s.label !== '');
   if (entries.length === 0) return;
   const values = entries.map((s, index) => [productId, s.label, s.value, index]);
   await connection.query('INSERT INTO product_specs (product_id, label, value, sort_order) VALUES ?', [values]);
@@ -254,7 +255,9 @@ function validateKeySpecs(keySpecs) {
     const label = String(s?.label ?? '').trim();
     const value = String(s?.value ?? '').trim();
     if (label === '' && value === '') continue; // fully-blank row, dropped silently by setProductKeySpecs
-    if (label === '' || value === '') return 'Each key specification needs both a label and a value';
+    // A value with no label has nowhere to attach — the label is the one required field, since
+    // it's what a lone bullet point (no value) displays as (see attachKeySpecs/Product.jsx).
+    if (label === '') return 'Each key specification needs at least a label';
     if (label.length > 100) return 'Each key specification label must be 100 characters or fewer';
     if (value.length > 255) return 'Each key specification value must be 255 characters or fewer';
   }
