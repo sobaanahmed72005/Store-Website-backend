@@ -8,7 +8,12 @@ const DEFAULTS = {
   enabled: false,
   api_key: '',
   api_password: '',
-  tracking_url_template: 'https://pk.leopardscourier.com/shipment_tracking_view?cn_number={tracking_number}',
+  // Deep-linking straight to the result (?cn_number=...) unreliably returns a false
+  // "invalid / record not found" on Leopards' end even for a real, existing shipment — the
+  // number only reliably resolves when typed into the search box on their plain tracking page.
+  // So this points there instead and lets the customer paste in the number (shown as text next
+  // to the Track Package button) themselves, rather than risk showing them a false error.
+  tracking_url_template: 'https://pk.leopardscourier.com/tracking#{tracking_number}',
   sandbox: true,
   default_weight_grams: 1000,
   origin_city: 'self',
