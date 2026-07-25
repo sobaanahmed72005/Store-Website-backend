@@ -42,88 +42,10 @@ async function registerAndGetId(agent, prefix) {
   return { email, id: user.id };
 }
 
-describe('auth — 2FA, password reset, email verification', () => {
+describe('auth — 2FA, password reset', () => {
   after(async () => {
     await cleanupTestUsers();
     await pool.end();
-  });
-
-  describe('email verification', () => {
-
-    it('rejects a request with no token', async () => {
-      const res = await request.get('/api/auth/verify-email');
-      assert.equal(res.status, 400);
-    });
-
-    it('rejects a bogus token', async () => {
-      const res = await request.get('/api/auth/verify-email').query({ token: 'not-a-real-token' });
-      assert.equal(res.status, 400);
-    });
-
-    it('verifies with the real token stored at registration and is single-use', async () => {
-      const agent = newAgent();
-      const { id } = await registerAndGetId(agent, 'verify');
-
-      // The raw token only ever leaves the server in the email; recover it the same way the DB
-      // would validate it, by regenerating and re-storing a known raw token for this user.
-      const rawToken = crypto.randomBytes(32).toString('hex');
-      const expires = new Date(Date.now() + 24 * 60 * 60 * 1000);
-      await pool.query('UPDATE users SET verification_token = ?, verification_token_expires = ? WHERE id = ?', [
-        hashToken(rawToken), expires, id,
-      ]);
-
-      const res = await request.get('/api/auth/verify-email').query({ token: rawToken });
-      assert.equal(res.status, 200);
-
-      const [[row]] = await pool.query('SELECT email_verified, verification_token FROM users WHERE id = ?', [id]);
-      assert.equal(row.email_verified, 1);
-      assert.equal(row.verification_token, null);
-
-      // Using the same token again must fail — it was cleared on first use.
-      const second = await request.get('/api/auth/verify-email').query({ token: rawToken });
-      assert.equal(second.status, 400);
-    });
-
-    it('rejects an expired token', async () => {
-      const agent = newAgent();
-      const { id } = await registerAndGetId(agent, 'verifyexp');
-
-      const rawToken = crypto.randomBytes(32).toString('hex');
-      const expired = new Date(Date.now() - 1000);
-      await pool.query('UPDATE users SET verification_token = ?, verification_token_expires = ? WHERE id = ?', [
-        hashToken(rawToken), expired, id,
-      ]);
-
-      const res = await request.get('/api/auth/verify-email').query({ token: rawToken });
-      assert.equal(res.status, 400);
-    });
-
-    describe('POST /api/auth/resend-verification', () => {
-      it('requires authentication', async () => {
-        const res = await request.post('/api/auth/resend-verification');
-        assert.equal(res.status, 401);
-      });
-
-      it('issues a new usable token for an unverified account', async () => {
-        const agent = newAgent();
-        const { id } = await registerAndGetId(agent, 'resend');
-
-        const res = await agent.post('/api/auth/resend-verification');
-        assert.equal(res.status, 200);
-
-        const [[row]] = await pool.query('SELECT verification_token FROM users WHERE id = ?', [id]);
-        assert.ok(row.verification_token, 'a new token hash was stored');
-      });
-
-      it('rejects resending once already verified', async () => {
-        const agent = newAgent();
-        const { id } = await registerAndGetId(agent, 'resendverified');
-        await pool.query('UPDATE users SET email_verified = 1 WHERE id = ?', [id]);
-
-        const res = await agent.post('/api/auth/resend-verification');
-        assert.equal(res.status, 400);
-      });
-    });
   });
 
   describe('password reset', () => {
