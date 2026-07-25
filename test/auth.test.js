@@ -20,7 +20,7 @@ describe('auth', () => {
       assert.equal(res.status, 201);
       assert.equal(res.body.user.email, email);
       assert.equal(res.body.user.role, 'customer');
-      assert.equal(res.body.user.email_verified, 0);
+      assert.equal(res.body.user.email_verified, 1);
       assert.ok(res.headers['set-cookie'].some((c) => c.startsWith('cz_token=')), 'sets an access token cookie');
       assert.ok(res.headers['set-cookie'].some((c) => c.startsWith('cz_refresh=')), 'sets a refresh cookie');
     });
@@ -148,7 +148,7 @@ describe('auth', () => {
       assert.equal(res.status, 401);
     });
 
-    it('allows an email change with the correct currentPassword, and resets email_verified', async () => {
+    it('allows an email change with the correct currentPassword', async () => {
       const agent = newAgent();
       const email = uniqueEmail('correctpw');
       await agent.post('/api/auth/register').send({ name: 'Correct Password', email, password: PASSWORD });
@@ -157,7 +157,7 @@ describe('auth', () => {
       const res = await agent.put('/api/auth/me').send({ name: 'Correct Password', email: newEmail, currentPassword: PASSWORD });
       assert.equal(res.status, 200);
       assert.equal(res.body.user.email, newEmail);
-      assert.equal(res.body.user.email_verified, 0);
+      assert.equal(res.body.user.email_verified, 1);
     });
 
     it('does not require a password when only the name changes', async () => {

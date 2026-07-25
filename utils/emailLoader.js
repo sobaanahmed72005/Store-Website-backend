@@ -2,10 +2,6 @@ import pool from '../config/db.js';
 import { escapeHtml } from './emailTemplate.js';
 
 export const TEMPLATE_DEFAULTS = {
-  signup: {
-    subject: 'Verify your email address',
-    message: "Thanks for creating an account with us! To get started, please verify your email address by clicking the button below.",
-  },
   order_received: {
     subject: 'Order #{{order_id}} received — thank you!',
     message: "Thanks for your order! We've received it and our team is reviewing it now. You'll receive another email as soon as your order is confirmed.",
@@ -77,9 +73,9 @@ export async function getEmailTemplate(businessId, type) {
 // which does no escaping of its own (by design — several call sites deliberately pass raw,
 // hand-written HTML there, like a styled disclaimer <span>). So this is the one place that must
 // escape the admin-authored text itself, not just the {{var}} substitutions, or a malicious/
-// compromised admin session can inject arbitrary HTML/script into every one of: signup
-// verification, password reset, all 7 order-status emails, review reminders, and newsletter
-// welcome emails. escapeHtml only touches & < > " ', none of which appear in a {{key}} token, so
+// compromised admin session can inject arbitrary HTML/script into every one of: password reset,
+// all 7 order-status emails, review reminders, and newsletter welcome emails. escapeHtml only
+// touches & < > " ', none of which appear in a {{key}} token, so
 // escaping first and substituting after still finds and replaces every placeholder correctly.
 export function applyPlaceholders(text, vars) {
   if (!text) return '';
