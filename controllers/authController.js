@@ -82,28 +82,6 @@ async function verifyTwoFactorCode(user, rawToken) {
   return false;
 }
 
-async function buildVerificationEmail(name, token, businessId) {
-  const link = `${FRONTEND_URL}/verify-email?token=${token}`;
-  const [tpl, storeName] = await Promise.all([
-    getEmailTemplate(businessId, 'signup').catch(() => null),
-    getSiteName(businessId),
-  ]);
-  const vars = { name };
-  const subject = tpl?.subject ? applyPlaceholders(tpl.subject, vars) : 'Verify your email address';
-  const message = tpl?.message ? applyPlaceholders(tpl.message, vars) : 'Thanks for creating an account with us! To get started, please verify your email address by clicking the button below.';
-  const body =
-    emailGreeting(name) +
-    emailParagraph(message) +
-    emailButton('Verify My Email', link) +
-    emailDivider() +
-    emailParagraph(`Or copy and paste this link into your browser:<br/><a href="${link}" style="color:#102b53;font-size:13px;">${link}</a>`) +
-    emailParagraph("<span style='color:#888;font-size:13px;'>This link expires in 24 hours. If you didn't create an account, you can safely ignore this email.</span>");
-  return {
-    subject,
-    html: wrapEmail(body, { storeName, preheader: 'One click to activate your account.' }),
-  };
-}
-
 async function buildPasswordResetEmail(name, token, businessId) {
   const link = `${FRONTEND_URL}/reset-password?token=${token}`;
   const [tpl, storeName] = await Promise.all([
@@ -140,20 +118,14 @@ export async function register(req, res) {
   if (existing.length > 0) return res.status(409).json({ error: 'Email already registered' });
 
   const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
-  const verificationToken = crypto.randomBytes(32).toString('hex');
-  const verificationTokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
   const [result] = await pool.query(
-    'INSERT INTO users (business_id, name, email, password_hash, phone, verification_token, verification_token_expires) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    [req.business.id, name, email, passwordHash, phone ?? null, hashToken(verificationToken), verificationTokenExpires]
+    'INSERT INTO users (business_id, name, email, password_hash, phone, email_verified) VALUES (?, ?, ?, ?, ?, 1)',
+    [req.business.id, name, email, passwordHash, phone ?? null]
   );
-  const user = { id: result.insertId, name, email, role: 'customer', email_verified: 0 };
+  const user = { id: result.insertId, name, email, role: 'customer', email_verified: 1 };
   const sessionId = await createSession(user.id);
   const accessTokenExpiresAt = issueSession(res, user, req.business.id, sessionId);
   res.status(201).json({ user, accessTokenExpiresAt });
-
-  buildVerificationEmail(name, verificationToken, req.business.id).then(({ subject, html }) => {
-    sendMail({ to: email, subject, html });
-  }).catch(() => {});
 }
 
 // Shared by the customer and admin login endpoints, which must stay fully separate:
@@ -415,17 +387,8 @@ export async function updateProfile(req, res) {
     }
   }
 
-  const verificationToken = emailChanged ? crypto.randomBytes(32).toString('hex') : null;
-  const verificationTokenExpires = emailChanged ? new Date(Date.now() + 24 * 60 * 60 * 1000) : null;
   try {
-    await pool.query(
-      emailChanged
-        ? 'UPDATE users SET name = ?, email = ?, email_verified = 0, verification_token = ?, verification_token_expires = ? WHERE id = ?'
-        : 'UPDATE users SET name = ? WHERE id = ?',
-      emailChanged
-        ? [name.trim(), email.trim(), hashToken(verificationToken), verificationTokenExpires, req.user.id]
-        : [name.trim(), req.user.id]
-    );
+    await pool.query('UPDATE users SET name = ?, email = ? WHERE id = ?', [name.trim(), email.trim(), req.user.id]);
   } catch (err) {
     if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'Email already in use' });
     throw err;
@@ -437,12 +400,6 @@ export async function updateProfile(req, res) {
   // session rather than minting a new one, since nothing here needs to be revoked.
   const accessTokenExpiresAt = issueSession(res, user, req.business.id, req.sessionId);
   res.json({ user, accessTokenExpiresAt });
-
-  if (emailChanged) {
-    buildVerificationEmail(name.trim(), verificationToken, req.business.id).then(({ subject, html }) => {
-      sendMail({ to: email.trim(), subject, html });
-    }).catch(() => {});
-  }
 }
 
 export async function changePassword(req, res) {
@@ -509,36 +466,3 @@ export async function resetPassword(req, res) {
   res.json({ message: 'Password reset successfully' });
 }
 
-export async function verifyEmail(req, res) {
-  const { token } = req.query;
-  if (!token) return res.status(400).json({ error: 'Missing token' });
-
-  const [rows] = await pool.query(
-    'SELECT id FROM users WHERE business_id = ? AND verification_token = ? AND verification_token_expires > NOW()',
-    [req.business.id, hashToken(token)]
-  );
-  if (rows.length === 0) return res.status(400).json({ error: 'Invalid or expired verification link' });
-
-  await pool.query('UPDATE users SET email_verified = 1, verification_token = NULL, verification_token_expires = NULL WHERE id = ?', [rows[0].id]);
-  res.json({ message: 'Email verified' });
-}
-
-export async function resendVerification(req, res) {
-  const [rows] = await pool.query('SELECT name, email, email_verified FROM users WHERE id = ?', [req.user.id]);
-  const user = rows[0];
-  if (!user) return res.status(404).json({ error: 'User not found' });
-  if (user.email_verified) return res.status(400).json({ error: 'Email already verified' });
-
-  const verificationToken = crypto.randomBytes(32).toString('hex');
-  const verificationTokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
-  await pool.query(
-    'UPDATE users SET verification_token = ?, verification_token_expires = ? WHERE id = ?',
-    [hashToken(verificationToken), verificationTokenExpires, req.user.id]
-  );
-
-  res.json({ message: 'Verification email sent' });
-
-  buildVerificationEmail(user.name, verificationToken, req.business.id).then(({ subject, html }) => {
-    sendMail({ to: user.email, subject, html });
-  }).catch(() => {});
-}

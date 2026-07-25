@@ -1,6 +1,6 @@
 import express from 'express';
 import {
-  register, login, adminLogin, logout, adminLogout, me, refresh, adminRefresh, verifyEmail, resendVerification,
+  register, login, adminLogin, logout, adminLogout, me, refresh, adminRefresh,
   updateProfile, changePassword, forgotPassword, resetPassword, verifyTwoFactorLogin, twoFactorStatus,
   setupTwoFactor, confirmTwoFactor, disableTwoFactor,
 } from '../controllers/authController.js';
@@ -23,8 +23,6 @@ router.post('/admin-logout', adminLogout);
 router.get('/me', requireAuth, me);
 router.put('/me', requireAuth, authenticatedAccountActionRateLimit, updateProfile);
 router.put('/change-password', requireAuth, authenticatedAccountActionRateLimit, changePassword);
-router.get('/verify-email', accountActionRateLimit, verifyEmail);
-router.post('/resend-verification', requireAuth, authenticatedAccountActionRateLimit, resendVerification);
 router.post('/forgot-password', accountActionRateLimit, forgotPassword);
 router.post('/reset-password', accountActionRateLimit, resetPassword);
 router.get('/2fa/status', requireAuth, twoFactorStatus);
