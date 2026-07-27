@@ -3,7 +3,7 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import pool from '../config/db.js';
 import { sendMail } from '../utils/mailer.js';
-import { wrapEmail, emailGreeting, emailButton, emailParagraph, emailDivider } from '../utils/emailTemplate.js';
+import { wrapEmail, emailGreeting, emailButton, emailParagraph, emailDivider, escapeHtml } from '../utils/emailTemplate.js';
 import { getEmailTemplate, applyPlaceholders } from '../utils/emailLoader.js';
 import { getSiteName } from './contentController.js';
 import { REFRESH_COOKIE, ADMIN_REFRESH_COOKIE, ACCESS_TOKEN_MAX_AGE, setAuthCookies, clearAuthCookies } from '../utils/authCookies.js';
@@ -12,6 +12,8 @@ import { generateTotpSecret, verifyTotpToken, buildOtpAuthQrCode, generateRecove
 import { createChallengeStore } from '../utils/challengeStore.js';
 import { createSession, revokeSession, revokeAllSessions } from '../utils/sessions.js';
 import { passwordLengthError } from '../utils/validation.js';
+import { logAudit } from '../utils/auditLog.js';
+import { logger } from '../utils/logger.js';
 import { JWT_SECRET, FRONTEND_URL } from '../config/env.js';
 
 const BCRYPT_ROUNDS = 12;
@@ -103,6 +105,26 @@ async function buildPasswordResetEmail(name, token, businessId) {
   return {
     subject,
     html: wrapEmail(body, { storeName, preheader: 'Reset your password.' }),
+  };
+}
+
+// Fired after every successful password change (self-service or via reset link) so an account
+// takeover can't silently change the password without the real owner finding out — see the ip/method
+// passed in by each caller below, sourced from utils/auditLog.js's own req.ip (already verified as
+// the real client IP by middleware/cloudflare.js, not just whatever a client claims).
+async function buildPasswordChangedEmail(name, businessId, { ip, method }) {
+  const storeName = await getSiteName(businessId);
+  const when = new Date().toLocaleString('en-US', { timeZone: 'Asia/Karachi', dateStyle: 'medium', timeStyle: 'short' });
+  const methodLabel = method === 'reset_link' ? 'using the "Forgot password" email link' : 'from the account settings page';
+  const body =
+    emailGreeting(name) +
+    emailParagraph(`Your password was just changed ${methodLabel}.`) +
+    emailParagraph(`<strong>When:</strong> ${escapeHtml(when)} (Pakistan time)<br/><strong>IP address:</strong> ${escapeHtml(ip || 'unknown')}`) +
+    emailDivider() +
+    emailParagraph("<span style='color:#b00020;font-size:13px;'>If this wasn't you, someone else may have access to your account. Reset your password again immediately and contact support.</span>");
+  return {
+    subject: 'Your password was changed',
+    html: wrapEmail(body, { storeName, preheader: 'Your password was just changed.' }),
   };
 }
 
@@ -422,6 +444,12 @@ export async function changePassword(req, res) {
   await revokeAllSessions(req.user.id);
   const sessionId = await createSession(req.user.id);
   const accessTokenExpiresAt = issueSession(res, req.user, req.business.id, sessionId);
+
+  logAudit({ req, action: 'password_changed', entityType: 'user', entityId: req.user.id, details: { method: 'self_service' } });
+  buildPasswordChangedEmail(req.user.name, req.business.id, { ip: req.ip, method: 'self_service' }).then(({ subject, html }) => {
+    sendMail({ to: req.user.email, subject, html });
+  }).catch((err) => logger.error({ err, userId: req.user.id }, 'Password-changed notification email failed'));
+
   res.json({ message: 'Password updated', accessTokenExpiresAt });
 }
 
@@ -453,16 +481,25 @@ export async function resetPassword(req, res) {
   if (newPasswordError) return res.status(400).json({ error: newPasswordError });
 
   const [rows] = await pool.query(
-    'SELECT id FROM users WHERE business_id = ? AND reset_token = ? AND reset_token_expires > NOW()',
+    'SELECT id, name, email FROM users WHERE business_id = ? AND reset_token = ? AND reset_token_expires > NOW()',
     [req.business.id, hashToken(token)],
   );
   if (rows.length === 0) return res.status(400).json({ error: 'Invalid or expired reset link' });
+  const user = rows[0];
 
   const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
   await pool.query(
     'UPDATE users SET password_hash = ?, reset_token = NULL, reset_token_expires = NULL WHERE id = ?',
-    [passwordHash, rows[0].id],
+    [passwordHash, user.id],
   );
+
+  // No req.user here — this flow is authenticated by the emailed token, not a session — so the
+  // actor is passed explicitly as the account being reset (the token proves it's the same person).
+  logAudit({ req, action: 'password_changed', entityType: 'user', entityId: user.id, userId: user.id, userName: user.name, details: { method: 'reset_link' } });
+  buildPasswordChangedEmail(user.name, req.business.id, { ip: req.ip, method: 'reset_link' }).then(({ subject, html }) => {
+    sendMail({ to: user.email, subject, html });
+  }).catch((err) => logger.error({ err, userId: user.id }, 'Password-changed notification email failed'));
+
   res.json({ message: 'Password reset successfully' });
 }
 

@@ -16,14 +16,17 @@ export async function listAuditLogs(req, res) {
 }
 
 // Never let a logging failure break the admin action it's recording.
-export async function logAudit({ req, action, entityType, entityId, details }) {
+// userId/userName override the actor for routes with no logged-in req.user (e.g. resetPassword,
+// completed via an emailed token rather than a session) — every other caller leaves these unset
+// and gets the normal req.user-derived actor.
+export async function logAudit({ req, action, entityType, entityId, details, userId, userName }) {
   try {
     await pool.query(
       'INSERT INTO audit_logs (business_id, user_id, user_name, action, entity_type, entity_id, details, ip_address) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
       [
         req.business.id,
-        req.user?.id ?? null,
-        req.user?.name ?? null,
+        userId ?? req.user?.id ?? null,
+        userName ?? req.user?.name ?? null,
         action,
         entityType,
         entityId != null ? String(entityId) : null,
