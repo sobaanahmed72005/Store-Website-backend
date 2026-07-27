@@ -54,12 +54,20 @@ async function attachHasVariants(rows) {
   return rows.map((row) => ({ ...row, has_variants: withVariants.has(row.id) }));
 }
 
+// A variant's identity across saves is its exact set of option ids, not its DB row id — variants
+// are wiped and reinserted whole on every product save (see setProductVariants), so a variant_id
+// captured before a save would already be stale by the time anything read it back. Both variant
+// key-spec resolution (setProductKeySpecs) and the reconciliation below key off this instead.
+function optionKey(optionIds) {
+  return [...optionIds].map(Number).sort((a, b) => a - b).join(',');
+}
+
 // Full variant detail for a single-product read — each variant labeled with its option values so
 // the PDP can build a picker and match a selection without a second round-trip.
 async function attachVariants(rows) {
   if (rows.length === 0) return rows;
   const [variants] = await pool.query(
-    `SELECT id, product_id, price, discount_price, stock FROM product_variants WHERE product_id IN (${rows.map(() => '?').join(',')})`,
+    `SELECT id, product_id, price, discount_price, stock, description FROM product_variants WHERE product_id IN (${rows.map(() => '?').join(',')})`,
     rows.map((r) => r.id)
   );
   if (variants.length === 0) return rows.map((row) => ({ ...row, variants: [] }));
@@ -71,6 +79,13 @@ async function attachVariants(rows) {
      WHERE pvo.variant_id IN (${variants.map(() => '?').join(',')})`,
     variants.map((v) => v.id)
   );
+  // Key specs scoped to one specific variant (product_specs.variant_id) — attachKeySpecs already
+  // put the "all variants" ones (variant_id IS NULL) on the product's own key_specs/specifications;
+  // these are the extra, variant-only facts, shown only once that exact variant is selected.
+  const [variantSpecs] = await pool.query(
+    `SELECT variant_id, label, value FROM product_specs WHERE variant_id IN (${variants.map(() => '?').join(',')}) ORDER BY sort_order, id`,
+    variants.map((v) => v.id)
+  );
   return rows.map((row) => ({
     ...row,
     variants: variants
@@ -80,7 +95,9 @@ async function attachVariants(rows) {
         price: v.price,
         discount_price: v.discount_price,
         stock: v.stock,
+        description: v.description,
         options: options.filter((o) => o.variant_id === v.id).map((o) => ({ attribute: o.attribute, value: o.value })),
+        key_specs: variantSpecs.filter((s) => s.variant_id === v.id).map((s) => ({ label: s.label, value: s.value })),
       })),
   }));
 }
@@ -97,8 +114,10 @@ function variantEffectivePrice(variant) {
 // run after attachAttributeOptionIds so `row.specifications` already exists to merge into.
 async function attachKeySpecs(rows) {
   if (rows.length === 0) return rows;
+  // variant_id IS NULL: this function only surfaces the "all variants" specs at the product level —
+  // a spec scoped to one specific variant is attached to that variant instead, in attachVariants.
   const [specs] = await pool.query(
-    `SELECT id, product_id, label, value FROM product_specs WHERE product_id IN (${rows.map(() => '?').join(',')}) ORDER BY sort_order, id`,
+    `SELECT id, product_id, label, value FROM product_specs WHERE product_id IN (${rows.map(() => '?').join(',')}) AND variant_id IS NULL ORDER BY sort_order, id`,
     rows.map((r) => r.id)
   );
   return rows.map((row) => {
@@ -159,20 +178,25 @@ async function setProductAttributeOptions(connection, productId, optionIds) {
 }
 
 // Same delete-then-reinsert pattern as setProductAttributeOptions/setProductImages. Each variant's
-// price/stock must already be validated by the caller before the transaction opens.
+// price/stock must already be validated by the caller before the transaction opens. Returns the
+// option-combo -> freshly-inserted-id map setProductKeySpecs needs to resolve a variant-scoped spec,
+// since every variant just got a brand new id here regardless of what it was before this save.
 async function setProductVariants(connection, businessId, productId, variants) {
   await connection.query('DELETE FROM product_variants WHERE product_id = ?', [productId]);
-  if (!variants?.length) return;
+  const variantIdByOptionKey = new Map();
+  if (!variants?.length) return variantIdByOptionKey;
   for (const v of variants) {
     const [result] = await connection.query(
-      'INSERT INTO product_variants (business_id, product_id, price, discount_price, stock) VALUES (?, ?, ?, ?, ?)',
-      [businessId, productId, v.price, v.discount_price ?? null, v.stock ?? 0]
+      'INSERT INTO product_variants (business_id, product_id, price, discount_price, stock, description) VALUES (?, ?, ?, ?, ?, ?)',
+      [businessId, productId, v.price, v.discount_price ?? null, v.stock ?? 0, v.description?.trim() || null]
     );
     if (v.option_ids?.length) {
       const values = v.option_ids.map((optionId) => [result.insertId, optionId]);
       await connection.query('INSERT INTO product_variant_options (variant_id, option_id) VALUES ?', [values]);
+      variantIdByOptionKey.set(optionKey(v.option_ids), result.insertId);
     }
   }
+  return variantIdByOptionKey;
 }
 
 function validateVariants(variants) {
@@ -234,19 +258,38 @@ async function setProductSpecOverrides(connection, productId, specOverrides) {
   await connection.query('INSERT INTO product_spec_overrides (product_id, attribute_name, value) VALUES ?', [values]);
 }
 
-// keySpecs is [{ label, value }] from the admin form's free-form Key Specifications editor —
-// completely separate from the category-attribute machinery above. A label with no value is a
-// plain bullet point (e.g. "Waterproof") rather than a "Label: Value" pair — valid on its own,
-// per validateKeySpecs below. A fully-blank row (an admin clicking "+ Add" and not filling it in)
-// is the only thing this silently drops.
-async function setProductKeySpecs(connection, productId, keySpecs) {
+// keySpecs is [{ label, value, variant_option_ids? }] from the admin form's free-form Key
+// Specifications editor — completely separate from the category-attribute machinery above. A label
+// with no value is a plain bullet point (e.g. "Waterproof") rather than a "Label: Value" pair —
+// valid on its own, per validateKeySpecs below. A fully-blank row (an admin clicking "+ Add" and not
+// filling it in) is the only thing this silently drops on its own account.
+//
+// variant_option_ids is the exact option_ids of one of the variants in this same save ("Applies
+// to" dropdown; absent/empty means "All Variants"), resolved against variantIdByOptionKey (built by
+// setProductVariants moments ago in the same transaction) rather than trusting a raw variant_id —
+// variant rows are wiped and reinserted with fresh ids on every save, so a stale id would silently
+// point at nothing. If the admin's chosen combination isn't among this save's variants (e.g. they
+// removed it in the same edit), the row is dropped rather than silently widening it to "All
+// Variants" — that would publish it somewhere the admin never chose.
+async function setProductKeySpecs(connection, productId, keySpecs, variantIdByOptionKey) {
   await connection.query('DELETE FROM product_specs WHERE product_id = ?', [productId]);
   const entries = (keySpecs || [])
-    .map((s) => ({ label: String(s?.label ?? '').trim(), value: String(s?.value ?? '').trim() }))
-    .filter((s) => s.label !== '');
+    .map((s) => ({
+      label: String(s?.label ?? '').trim(),
+      value: String(s?.value ?? '').trim(),
+      variantOptionIds: s?.variant_option_ids,
+    }))
+    .filter((s) => s.label !== '')
+    .filter((s) => !s.variantOptionIds?.length || variantIdByOptionKey.has(optionKey(s.variantOptionIds)));
   if (entries.length === 0) return;
-  const values = entries.map((s, index) => [productId, s.label, s.value, index]);
-  await connection.query('INSERT INTO product_specs (product_id, label, value, sort_order) VALUES ?', [values]);
+  const values = entries.map((s, index) => [
+    productId,
+    s.variantOptionIds?.length ? variantIdByOptionKey.get(optionKey(s.variantOptionIds)) : null,
+    s.label,
+    s.value,
+    index,
+  ]);
+  await connection.query('INSERT INTO product_specs (product_id, variant_id, label, value, sort_order) VALUES ?', [values]);
 }
 
 function validateKeySpecs(keySpecs) {
@@ -481,9 +524,9 @@ export async function createProduct(req, res) {
     );
     await setProductAttributeOptions(connection, result.insertId, attribute_option_ids);
     await setProductImages(connection, result.insertId, images);
-    await setProductVariants(connection, req.business.id, result.insertId, variants);
+    const variantIdByOptionKey = await setProductVariants(connection, req.business.id, result.insertId, variants);
     await setProductSpecOverrides(connection, result.insertId, spec_overrides);
-    await setProductKeySpecs(connection, result.insertId, key_specs);
+    await setProductKeySpecs(connection, result.insertId, key_specs, variantIdByOptionKey);
     await connection.commit();
     res.status(201).json({ id: result.insertId });
     logAudit({ req, action: 'product.create', entityType: 'product', entityId: result.insertId, details: { name, price: effectivePrice, stock: effectiveStock ?? 0 } });
@@ -598,9 +641,9 @@ export async function updateProduct(req, res) {
     }
     await setProductAttributeOptions(connection, req.params.id, attribute_option_ids);
     await setProductImages(connection, req.params.id, images);
-    await setProductVariants(connection, req.business.id, req.params.id, variants);
+    const variantIdByOptionKey = await setProductVariants(connection, req.business.id, req.params.id, variants);
     await setProductSpecOverrides(connection, req.params.id, spec_overrides);
-    await setProductKeySpecs(connection, req.params.id, key_specs);
+    await setProductKeySpecs(connection, req.params.id, key_specs, variantIdByOptionKey);
     await connection.commit();
     res.json({ message: 'Product updated' });
     logAudit({

@@ -228,6 +228,10 @@ CREATE TABLE IF NOT EXISTS product_variants (
   price DECIMAL(10,2) NOT NULL,
   discount_price DECIMAL(10,2) NULL,
   stock INT NOT NULL DEFAULT 0,
+  -- NULL falls back to the parent product's own description (see getVariantDescription in
+  -- productsController.js) — only set this when a variant genuinely reads differently (e.g. a
+  -- color/material that changes the actual product, not just its price/stock).
+  description TEXT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE,
   FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
@@ -272,11 +276,16 @@ CREATE TABLE IF NOT EXISTS product_images (
 CREATE TABLE IF NOT EXISTS product_specs (
   id INT AUTO_INCREMENT PRIMARY KEY,
   product_id INT NOT NULL,
+  -- NULL (the default) means this spec applies to every variant of the product; set to a specific
+  -- product_variants.id to scope it to just that one combination instead (see the admin form's
+  -- per-spec "Applies to" dropdown and attachVariants in productsController.js).
+  variant_id INT NULL,
   label VARCHAR(100) NOT NULL,
   value VARCHAR(255) NOT NULL,
   sort_order INT NOT NULL DEFAULT 0,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+  FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+  FOREIGN KEY (variant_id) REFERENCES product_variants(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS product_reviews (
