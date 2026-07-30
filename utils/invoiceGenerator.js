@@ -93,13 +93,16 @@ export async function generateInvoicePdf(orderId, businessId) {
     // ── Header (site teal background) ────────────────────────────────────
     doc.rect(0, 0, W, 112).fill(HEADER_BG)
 
-    // Logo sits directly above the domain/address/phone/email column (both anchored at M), not
-    // beside it — `fit` alone (no separate `height`) caps it to a fixed box regardless of the
-    // source image's aspect ratio, so a wide wordmark-style logo or a square icon-style one both
-    // land within the same reserved band and never run into the text starting at sY below.
+    // Logo + site name sit side by side above the domain/address/phone/email column (both
+    // anchored at M) — `fit` alone (no separate `height`) caps the logo to a fixed box regardless
+    // of the source image's aspect ratio, and the name is reserved the rest of the same 230pt
+    // band so neither ever runs into the text starting at sY below.
+    const LOGO_W = 60
     if (logoBuf) {
       try {
-        doc.image(logoBuf, M, 10, { fit: [140, 34] })
+        doc.image(logoBuf, M, 10, { fit: [LOGO_W, 34] })
+        doc.font('Helvetica-Bold').fontSize(15).fillColor('#ffffff')
+           .text(siteName || '', M + LOGO_W + 10, 18, { width: 230 - LOGO_W - 10 })
       } catch { /* bad image — skip */ }
     } else {
       doc.font('Helvetica-Bold').fontSize(19).fillColor('#ffffff')
