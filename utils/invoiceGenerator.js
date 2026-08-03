@@ -97,12 +97,14 @@ export async function generateInvoicePdf(orderId, businessId) {
     // anchored at M) — `fit` alone (no separate `height`) caps the logo to a fixed box regardless
     // of the source image's aspect ratio, and the name is reserved the rest of the same 230pt
     // band so neither ever runs into the text starting at sY below.
-    const LOGO_W = 60
+    const LOGO_W = 60       // reserved fit-box width for doc.image — position/scale untouched
+    const LOGO_VISUAL_W = 34 // most logos are square/circular, so `fit: [_, 34]` renders ~34pt wide
+    const NAME_GAP = 8
     if (logoBuf) {
       try {
         doc.image(logoBuf, M, 10, { fit: [LOGO_W, 34] })
         doc.font('Helvetica-Bold').fontSize(15).fillColor('#ffffff')
-           .text(siteName || '', M + LOGO_W + 10, 18, { width: 230 - LOGO_W - 10 })
+           .text(siteName || '', M + LOGO_VISUAL_W + NAME_GAP, 18, { width: 230 - LOGO_VISUAL_W - NAME_GAP })
       } catch { /* bad image — skip */ }
     } else {
       doc.font('Helvetica-Bold').fontSize(19).fillColor('#ffffff')
