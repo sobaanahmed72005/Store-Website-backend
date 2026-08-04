@@ -526,6 +526,7 @@ export async function downloadProductDataset(req, res) {
 export async function createProduct(req, res) {
   const {
     category_id, name, slug, brand, description, price, discount_price, stock, image, video, dataset,
+    content_image, content_image_caption,
     is_featured, is_new_arrival, is_on_sale, attribute_option_ids, images, variants, spec_overrides, key_specs,
   } = req.body;
   if (!name || !slug || price == null) {
@@ -559,11 +560,12 @@ export async function createProduct(req, res) {
   try {
     await connection.beginTransaction();
     const [result] = await connection.query(
-      `INSERT INTO products (business_id, category_id, name, slug, brand, description, price, discount_price, stock, image, video, dataset, is_featured, is_new_arrival, is_on_sale)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO products (business_id, category_id, name, slug, brand, description, price, discount_price, stock, image, video, dataset, content_image, content_image_caption, is_featured, is_new_arrival, is_on_sale)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         req.business.id, category_id || null, name, slug, brand ?? null, description ?? null, effectivePrice,
         discount_price ?? null, effectiveStock ?? 0, image ?? null, video ?? null, dataset ?? null,
+        content_image ?? null, content_image_caption ?? null,
         Number(Boolean(is_featured)), Number(Boolean(is_new_arrival)), Number(Boolean(is_on_sale)),
       ]
     );
@@ -631,6 +633,7 @@ async function notifyPriceDrop(businessId, productId, newPrice) {
 export async function updateProduct(req, res) {
   const {
     category_id, name, slug, brand, description, price, discount_price, stock, image, video, dataset,
+    content_image, content_image_caption,
     is_featured, is_new_arrival, is_on_sale, attribute_option_ids, images, variants, spec_overrides, key_specs,
   } = req.body;
 
@@ -672,10 +675,12 @@ export async function updateProduct(req, res) {
     await connection.beginTransaction();
     const [result] = await connection.query(
       `UPDATE products SET category_id = ?, name = ?, slug = ?, brand = ?, description = ?, price = ?,
-       discount_price = ?, stock = ?, image = ?, video = ?, dataset = ?, is_featured = ?, is_new_arrival = ?, is_on_sale = ? WHERE id = ? AND business_id = ?`,
+       discount_price = ?, stock = ?, image = ?, video = ?, dataset = ?, content_image = ?, content_image_caption = ?,
+       is_featured = ?, is_new_arrival = ?, is_on_sale = ? WHERE id = ? AND business_id = ?`,
       [
         category_id || null, name, slug, brand ?? null, description ?? null, effectivePrice,
         discount_price ?? null, effectiveStock ?? 0, image ?? null, video ?? null, dataset ?? null,
+        content_image ?? null, content_image_caption ?? null,
         Number(Boolean(is_featured)), Number(Boolean(is_new_arrival)), Number(Boolean(is_on_sale)),
         req.params.id, req.business.id,
       ]

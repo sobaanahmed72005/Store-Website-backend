@@ -51,6 +51,8 @@ CREATE TABLE IF NOT EXISTS products (
   image VARCHAR(255),
   video VARCHAR(255),
   dataset VARCHAR(255),
+  content_image VARCHAR(255),
+  content_image_caption VARCHAR(255),
   is_featured TINYINT(1) NOT NULL DEFAULT 0,
   is_new_arrival TINYINT(1) NOT NULL DEFAULT 0,
   is_on_sale TINYINT(1) NOT NULL DEFAULT 0,
