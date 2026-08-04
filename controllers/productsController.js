@@ -238,6 +238,18 @@ function validatePriceAndStock(price, stock) {
   return null;
 }
 
+// Matches the standard watch/short/embed/share URL shapes and pulls out the 11-char video id.
+// Everything downstream (createProduct/updateProduct) rebuilds a canonical
+// https://www.youtube.com/watch?v=<id> from this id rather than ever storing/echoing the
+// admin-supplied URL verbatim — so no attacker-controlled string (a "javascript:" URI, an open
+// redirect, arbitrary query params) can end up in a link rendered on the storefront.
+const YOUTUBE_URL_PATTERN = /(?:youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
+
+function extractYoutubeId(url) {
+  const match = typeof url === 'string' ? url.match(YOUTUBE_URL_PATTERN) : null;
+  return match ? match[1] : null;
+}
+
 function validateSalePrice(is_on_sale, discount_price, price) {
   if (!is_on_sale) return null;
   const discount = Number(discount_price);
@@ -526,7 +538,7 @@ export async function downloadProductDataset(req, res) {
 export async function createProduct(req, res) {
   const {
     category_id, name, slug, brand, description, price, discount_price, stock, image, video, dataset,
-    content_image, content_image_caption,
+    content_image, content_image_caption, content_video_url, content_video_title, content_video_caption,
     is_featured, is_new_arrival, is_on_sale, attribute_option_ids, images, variants, spec_overrides, key_specs,
   } = req.body;
   if (!name || !slug || price == null) {
@@ -551,6 +563,13 @@ export async function createProduct(req, res) {
   const saleError = validateSalePrice(is_on_sale, discount_price, effectivePrice);
   if (saleError) return res.status(400).json({ error: saleError });
 
+  let normalizedVideoUrl = null;
+  if (content_video_url) {
+    const videoId = extractYoutubeId(content_video_url);
+    if (!videoId) return res.status(400).json({ error: 'Content video must be a valid YouTube URL' });
+    normalizedVideoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+  }
+
   if (category_id) {
     const [catRows] = await pool.query('SELECT id FROM categories WHERE id = ? AND business_id = ?', [category_id, req.business.id]);
     if (catRows.length === 0) return res.status(400).json({ error: 'Invalid category' });
@@ -560,12 +579,13 @@ export async function createProduct(req, res) {
   try {
     await connection.beginTransaction();
     const [result] = await connection.query(
-      `INSERT INTO products (business_id, category_id, name, slug, brand, description, price, discount_price, stock, image, video, dataset, content_image, content_image_caption, is_featured, is_new_arrival, is_on_sale)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO products (business_id, category_id, name, slug, brand, description, price, discount_price, stock, image, video, dataset, content_image, content_image_caption, content_video_url, content_video_title, content_video_caption, is_featured, is_new_arrival, is_on_sale)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         req.business.id, category_id || null, name, slug, brand ?? null, description ?? null, effectivePrice,
         discount_price ?? null, effectiveStock ?? 0, image ?? null, video ?? null, dataset ?? null,
         content_image ?? null, content_image_caption ?? null,
+        normalizedVideoUrl, content_video_title ?? null, content_video_caption ?? null,
         Number(Boolean(is_featured)), Number(Boolean(is_new_arrival)), Number(Boolean(is_on_sale)),
       ]
     );
@@ -633,7 +653,7 @@ async function notifyPriceDrop(businessId, productId, newPrice) {
 export async function updateProduct(req, res) {
   const {
     category_id, name, slug, brand, description, price, discount_price, stock, image, video, dataset,
-    content_image, content_image_caption,
+    content_image, content_image_caption, content_video_url, content_video_title, content_video_caption,
     is_featured, is_new_arrival, is_on_sale, attribute_option_ids, images, variants, spec_overrides, key_specs,
   } = req.body;
 
@@ -665,6 +685,13 @@ export async function updateProduct(req, res) {
   const saleError = validateSalePrice(is_on_sale, discount_price, effectivePrice);
   if (saleError) return res.status(400).json({ error: saleError });
 
+  let normalizedVideoUrl = null;
+  if (content_video_url) {
+    const videoId = extractYoutubeId(content_video_url);
+    if (!videoId) return res.status(400).json({ error: 'Content video must be a valid YouTube URL' });
+    normalizedVideoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+  }
+
   if (category_id) {
     const [catRows] = await pool.query('SELECT id FROM categories WHERE id = ? AND business_id = ?', [category_id, req.business.id]);
     if (catRows.length === 0) return res.status(400).json({ error: 'Invalid category' });
@@ -676,11 +703,13 @@ export async function updateProduct(req, res) {
     const [result] = await connection.query(
       `UPDATE products SET category_id = ?, name = ?, slug = ?, brand = ?, description = ?, price = ?,
        discount_price = ?, stock = ?, image = ?, video = ?, dataset = ?, content_image = ?, content_image_caption = ?,
+       content_video_url = ?, content_video_title = ?, content_video_caption = ?,
        is_featured = ?, is_new_arrival = ?, is_on_sale = ? WHERE id = ? AND business_id = ?`,
       [
         category_id || null, name, slug, brand ?? null, description ?? null, effectivePrice,
         discount_price ?? null, effectiveStock ?? 0, image ?? null, video ?? null, dataset ?? null,
         content_image ?? null, content_image_caption ?? null,
+        normalizedVideoUrl, content_video_title ?? null, content_video_caption ?? null,
         Number(Boolean(is_featured)), Number(Boolean(is_new_arrival)), Number(Boolean(is_on_sale)),
         req.params.id, req.business.id,
       ]
