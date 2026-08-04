@@ -1,9 +1,19 @@
+import fs from 'fs/promises';
+import path from 'path';
 import pool from '../config/db.js';
 import { sendMail } from '../utils/mailer.js';
 import { escapeHtml } from '../utils/emailTemplate.js';
 import { logAudit } from '../utils/auditLog.js';
 import { logger } from '../utils/logger.js';
 import { parsePagination, buildPaginatedResponse } from '../utils/pagination.js';
+import { uploadsDir, GENERATED_FILENAME_PATTERN } from '../middleware/upload.js';
+import { isObjectStorageConfigured, getObjectBuffer } from '../utils/objectStorage.js';
+
+const DATASET_CONTENT_TYPE_BY_EXT = {
+  pdf: 'application/pdf',
+  doc: 'application/msword',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+};
 
 async function attachAttributeOptionIds(rows) {
   if (rows.length === 0) return rows;
@@ -476,6 +486,41 @@ export async function getProductBySlug(req, res) {
   if (rows.length === 0) return res.status(404).json({ error: 'Product not found' });
   const [withExtras] = await attachSingleProductExtras(rows);
   res.json(withExtras);
+}
+
+// Proxies the dataset file back through this app instead of handing the customer a direct link to
+// the CDN/object-storage bucket — the storefront's Dataset button hits this route, not
+// product.dataset directly, so the click downloads the file (via Content-Disposition below) rather
+// than navigating the browser to a bare object-storage URL in a new tab.
+export async function downloadProductDataset(req, res) {
+  const [rows] = await pool.query(
+    'SELECT name, dataset FROM products WHERE business_id = ? AND slug = ?',
+    [req.business.id, req.params.slug]
+  );
+  if (rows.length === 0 || !rows[0].dataset) return res.status(404).json({ error: 'Not found' });
+
+  const { name, dataset } = rows[0];
+  // dataset is stored as either a local `/uploads/<filename>` path or a full CDN URL (see
+  // utils/uploadHandler.js) — only the filename itself (validated below) is ever used for a
+  // disk/object-storage lookup, never the stored value verbatim.
+  const filename = dataset.split('/').pop();
+  if (!GENERATED_FILENAME_PATTERN.test(filename)) return res.status(404).json({ error: 'Not found' });
+
+  const ext = filename.split('.').pop().toLowerCase();
+  const downloadName = `${name.replace(/[^a-zA-Z0-9-_ ]/g, '').trim() || 'dataset'}.${ext}`;
+
+  let buffer;
+  try {
+    buffer = isObjectStorageConfigured
+      ? await getObjectBuffer(`uploads/${filename}`)
+      : await fs.readFile(path.join(uploadsDir, filename));
+  } catch {
+    return res.status(404).json({ error: 'Not found' });
+  }
+
+  res.setHeader('Content-Type', DATASET_CONTENT_TYPE_BY_EXT[ext] || 'application/octet-stream');
+  res.setHeader('Content-Disposition', `attachment; filename="${downloadName}"`);
+  res.end(buffer);
 }
 
 export async function createProduct(req, res) {
