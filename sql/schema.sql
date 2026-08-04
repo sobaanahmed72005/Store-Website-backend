@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS products (
   stock INT NOT NULL DEFAULT 0,
   image VARCHAR(255),
   video VARCHAR(255),
+  dataset VARCHAR(255),
   is_featured TINYINT(1) NOT NULL DEFAULT 0,
   is_new_arrival TINYINT(1) NOT NULL DEFAULT 0,
   is_on_sale TINYINT(1) NOT NULL DEFAULT 0,

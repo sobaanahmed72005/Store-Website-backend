@@ -2,6 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { sanitizeImageBuffer, extractIconCrop } from './imageProcessing.js';
 import { verifyUploadedVideo } from './videoProcessing.js';
+import { verifyUploadedDataset } from './datasetProcessing.js';
 import { uploadsDir, paymentProofsDir } from '../middleware/upload.js';
 import { isObjectStorageConfigured, putObject, publicUrlFor } from './objectStorage.js';
 
@@ -90,6 +91,32 @@ export async function handleVideoUpload(req, res) {
   if (isObjectStorageConfigured) {
     const key = `uploads/${filename}`;
     await putObject(key, req.file.buffer, VIDEO_CONTENT_TYPE_BY_FORMAT[format]);
+    return res.status(201).json({ url: publicUrlFor(key) });
+  }
+
+  await fs.writeFile(path.join(uploadsDir, filename), req.file.buffer);
+  res.status(201).json({ url: `/uploads/${filename}` });
+}
+
+// Verifies the file's real leading bytes match a known PDF/Word signature (see
+// datasetProcessing.js — can't re-encode a document the way sanitizeImageBuffer does for images),
+// then writes it under a generated filename, never the client-supplied original — same
+// in-memory-buffer + object-storage pattern as processUpload/handleVideoUpload above.
+export async function handleDatasetUpload(req, res) {
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+
+  let match;
+  try {
+    match = verifyUploadedDataset(req.file.buffer);
+  } catch {
+    return res.status(400).json({ error: 'That file is not a valid PDF or Word document' });
+  }
+
+  const filename = `${Date.now()}-${Math.round(Math.random() * 1e9)}.${match.format}`;
+
+  if (isObjectStorageConfigured) {
+    const key = `uploads/${filename}`;
+    await putObject(key, req.file.buffer, match.contentType);
     return res.status(201).json({ url: publicUrlFor(key) });
   }
 

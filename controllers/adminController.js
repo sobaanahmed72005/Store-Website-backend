@@ -1,5 +1,5 @@
 import pool from '../config/db.js';
-import { handleImageUpload, handleVideoUpload } from '../utils/uploadHandler.js';
+import { handleImageUpload, handleVideoUpload, handleDatasetUpload } from '../utils/uploadHandler.js';
 
 export async function getStats(req, res) {
   const businessId = req.business.id;
@@ -31,3 +31,4 @@ export async function getStats(req, res) {
 
 export const uploadImage = handleImageUpload;
 export const uploadProductVideo = handleVideoUpload;
+export const uploadProductDataset = handleDatasetUpload;

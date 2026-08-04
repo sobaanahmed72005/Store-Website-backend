@@ -1,7 +1,7 @@
 import express from 'express';
 import { requireAdmin } from '../middleware/auth.js';
-import { upload, uploadVideo } from '../middleware/upload.js';
-import { getStats, uploadImage, uploadProductVideo } from '../controllers/adminController.js';
+import { upload, uploadVideo, uploadDataset } from '../middleware/upload.js';
+import { getStats, uploadImage, uploadProductVideo, uploadProductDataset } from '../controllers/adminController.js';
 import { listAuditLogs } from '../utils/auditLog.js';
 import {
   getRevenueTrend,
@@ -73,6 +73,7 @@ router.use(requireAdmin);
 router.get('/stats', getStats);
 router.post('/upload', upload.single('image'), uploadImage);
 router.post('/upload-video', uploadVideo.single('video'), uploadProductVideo);
+router.post('/upload-dataset', uploadDataset.single('dataset'), uploadProductDataset);
 router.get('/audit-log', listAuditLogs);
 
 router.get('/reports/revenue-trend', getRevenueTrend);

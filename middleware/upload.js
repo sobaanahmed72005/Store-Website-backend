@@ -44,8 +44,16 @@ function videoFileFilter(req, file, cb) {
   rejectUpload(cb, 'Only mp4 or webm video files are allowed');
 }
 
+function datasetFileFilter(req, file, cb) {
+  if (/^(application\/pdf|application\/msword|application\/vnd\.openxmlformats-officedocument\.wordprocessingml\.document)$/.test(file.mimetype)) {
+    return cb(null, true);
+  }
+  rejectUpload(cb, 'Only PDF or Word documents are allowed');
+}
+
 const limits = { fileSize: 5 * 1024 * 1024 };
 const videoLimits = { fileSize: 50 * 1024 * 1024 };
+const datasetLimits = { fileSize: 20 * 1024 * 1024 };
 
 // All upload kinds land in memory, not on disk — utils/uploadHandler.js validates/re-encodes
 // the buffer via sharp and only then writes it to its final destination (local disk or object
@@ -66,3 +74,7 @@ export const paymentProofUpload = multer({ storage, fileFilter, limits });
 // Product videos — same public-once-processed model as `upload`, just a larger size cap and a
 // video-specific mimetype allowlist.
 export const uploadVideo = multer({ storage, fileFilter: videoFileFilter, limits: videoLimits });
+
+// Product "Dataset" attachments (spec sheet/datasheet, PDF or Word) — same public-once-processed
+// model as `upload`, with a document-specific mimetype allowlist and size cap.
+export const uploadDataset = multer({ storage, fileFilter: datasetFileFilter, limits: datasetLimits });
