@@ -26,15 +26,40 @@ function hasUntrustedOrigin(req) {
   }
 }
 
+// Verifies a token is a well-formed, currently-valid session for *some* surface, without ever
+// attaching it to req.user or granting it any capability — used only to pick a status code (see
+// altCookieForStatus below), never for authorization.
+function isValidToken(token) {
+  if (!token) return false;
+  try {
+    jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // Builds an auth middleware bound to one specific cookie — never both. Storefront and admin panel
 // are the same origin/SPA, so a browser can legitimately be carrying a valid customer cookie *and*
 // a valid admin cookie at the same time (someone signed into both in different tabs); each surface
 // must only ever look at its own cookie, or the two identities bleed into each other exactly like
 // they used to when both logins shared one cookie pair (see utils/authCookies.js).
-function buildAuthMiddleware(cookieName) {
+//
+// altCookieForStatus is *only* consulted when this surface's own cookie is missing, and *only* to
+// choose between 401 and 403: a request carrying nothing recognizable at all is unauthenticated
+// (401); one carrying a valid session for the other surface (e.g. a signed-in customer hitting an
+// admin route) is authenticated, just not for this surface (403) — standard REST semantics, and
+// what every "rejects a non-admin request" test in this suite already expects. It never reads
+// role/identity off that other cookie or lets it satisfy this middleware.
+function buildAuthMiddleware(cookieName, { altCookieForStatus } = {}) {
   return async function requireAuthWithCookie(req, res, next) {
     const token = req.cookies?.[cookieName];
-    if (!token) return res.status(401).json({ error: 'Authentication required' });
+    if (!token) {
+      const authenticatedElsewhere = altCookieForStatus && isValidToken(req.cookies?.[altCookieForStatus]);
+      return res
+        .status(authenticatedElsewhere ? 403 : 401)
+        .json({ error: authenticatedElsewhere ? 'Admin access required' : 'Authentication required' });
+    }
     if (hasUntrustedOrigin(req)) return res.status(403).json({ error: 'Request origin not allowed' });
 
     try {
@@ -70,7 +95,7 @@ export const requireAuth = buildAuthMiddleware(AUTH_COOKIE);
 // Admin-panel session only — can never see or be satisfied by a customer cookie. The role check
 // is defense-in-depth (this cookie should only ever hold an admin-role token, since only
 // adminLogin/adminRefresh ever write to it) rather than the primary control.
-const requireAdminCookie = buildAuthMiddleware(ADMIN_AUTH_COOKIE);
+const requireAdminCookie = buildAuthMiddleware(ADMIN_AUTH_COOKIE, { altCookieForStatus: AUTH_COOKIE });
 export function requireAdmin(req, res, next) {
   requireAdminCookie(req, res, () => {
     if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
