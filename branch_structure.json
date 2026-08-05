@@ -1,0 +1,36 @@
+{
+  "default_branch": "main",
+  "branches": [
+    "feature/theme-redesign",
+    "fix-tracking-link-deeplink-false-error",
+    "fix/leopards-consignee-name-field",
+    "fix/leopards-destination-city-id",
+    "fix/leopards-tracking-url-default",
+    "fix/order-items-sale-price-migration",
+    "main",
+    "remove-email-verification",
+    "security-scaling-fixes"
+  ],
+  "parent": {
+    "feature/theme-redesign": "main",
+    "fix-tracking-link-deeplink-false-error": "main",
+    "fix/leopards-consignee-name-field": "main",
+    "fix/leopards-destination-city-id": "main",
+    "fix/leopards-tracking-url-default": "main",
+    "fix/order-items-sale-price-migration": "main",
+    "main": null,
+    "remove-email-verification": "main",
+    "security-scaling-fixes": "main"
+  },
+  "order": [
+    "main",
+    "feature/theme-redesign",
+    "fix-tracking-link-deeplink-false-error",
+    "fix/leopards-consignee-name-field",
+    "fix/leopards-destination-city-id",
+    "fix/leopards-tracking-url-default",
+    "fix/order-items-sale-price-migration",
+    "remove-email-verification",
+    "security-scaling-fixes"
+  ]
+}
