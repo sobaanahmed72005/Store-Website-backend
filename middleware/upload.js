@@ -53,7 +53,7 @@ function datasetFileFilter(req, file, cb) {
 
 const limits = { fileSize: 5 * 1024 * 1024 };
 const videoLimits = { fileSize: 50 * 1024 * 1024 };
-const datasetLimits = { fileSize: 20 * 1024 * 1024 };
+const datasetLimits = { fileSize: 50 * 1024 * 1024 };
 
 // All upload kinds land in memory, not on disk — utils/uploadHandler.js validates/re-encodes
 // the buffer via sharp and only then writes it to its final destination (local disk or object
