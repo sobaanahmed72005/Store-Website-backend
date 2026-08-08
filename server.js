@@ -8,13 +8,15 @@ import { pruneOldSessions } from './utils/sessions.js';
 import { withDistributedLock } from './utils/distributedLock.js';
 import { PORT } from './config/env.js';
 
-// Wrapped in a DB-backed lock (see utils/distributedLock.js) so that if this app is ever scaled
-// to more than one instance, only one of them actually runs a given job on each tick instead of
-// every instance firing it independently — the concrete failure otherwise being e.g. a customer
-// getting the same review-reminder email once per running instance.
-const runSendReviewReminders = () => withDistributedLock('job:sendReviewReminders', sendReviewReminders);
-const runSyncLeopardsTracking = () => withDistributedLock('job:syncLeopardsTracking', syncLeopardsTracking);
-const runPruneOldSessions = () => withDistributedLock('job:pruneOldSessions', pruneOldSessions);
+const runJob = (name, fn) => {
+  withDistributedLock(name, fn).catch((err) => {
+    logger.error({ err, name }, 'Background scheduled job failed');
+  });
+};
+
+const runSendReviewReminders = () => runJob('job:sendReviewReminders', sendReviewReminders);
+const runSyncLeopardsTracking = () => runJob('job:syncLeopardsTracking', syncLeopardsTracking);
+const runPruneOldSessions = () => runJob('job:pruneOldSessions', pruneOldSessions);
 
 // process.exit() below is synchronous and immediate — without flushing first, Sentry's async
 // network send for this exact event (the one telling us the process is about to die) would very

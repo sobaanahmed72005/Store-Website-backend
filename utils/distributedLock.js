@@ -14,8 +14,9 @@ import { logger } from './logger.js';
 // simply skipped rather than queueing, which is exactly what we want for a job that's about to
 // run again on its own schedule anyway.
 export async function withDistributedLock(lockName, fn) {
-  const connection = await pool.getConnection();
+  let connection;
   try {
+    connection = await pool.getConnection();
     const [[{ acquired }]] = await connection.query('SELECT GET_LOCK(?, 0) AS acquired', [lockName]);
     if (!acquired) {
       logger.debug({ lockName }, 'Skipping scheduled job — another instance already holds the lock');
@@ -28,7 +29,9 @@ export async function withDistributedLock(lockName, fn) {
         logger.error({ err, lockName }, 'Failed to release distributed lock');
       });
     }
+  } catch (err) {
+    logger.error({ err, lockName }, 'Failed to acquire distributed lock');
   } finally {
-    connection.release();
+    if (connection) connection.release();
   }
 }
