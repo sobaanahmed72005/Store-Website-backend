@@ -101,9 +101,16 @@ app.use(compression({
     return compression.filter(req, res);
   },
 }));
-app.use(cookieParser());
-app.use(express.json());
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use(
+  '/uploads',
+  express.static(path.join(__dirname, 'uploads'), {
+    maxAge: '1y',
+    immutable: true,
+    setHeaders: (res) => {
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    },
+  })
+);
 
 // Railway's own container healthcheck (see Dockerfile) hits this directly, bypassing Cloudflare
 // — so it must stay reachable before requireCloudflare below, not after.
