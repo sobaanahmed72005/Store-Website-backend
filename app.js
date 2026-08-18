@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
+import compression from 'compression';
 import pinoHttp from 'pino-http';
 import multer from 'multer';
 import path from 'path';
@@ -92,6 +93,13 @@ app.use(cors({
     callback(err);
   },
   credentials: true,
+}));
+app.use(compression({
+  threshold: 1024,
+  filter: (req, res) => {
+    if (req.headers['x-no-compression']) return false;
+    return compression.filter(req, res);
+  },
 }));
 app.use(cookieParser());
 app.use(express.json());
