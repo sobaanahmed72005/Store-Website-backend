@@ -5,17 +5,17 @@ import { PAYMENT_LABEL_MAP as PAYMENT_LABEL } from './emailTemplate.js'
 
 const BACKEND_ORIGIN = new URL(BACKEND_URL)
 
-// Matches the site's teal/gold theme (src/index.css --color-cz-*)
-const HEADER_BG = '#2b6580' // cz-header — same shade the live site header uses behind the logo
-const PRIMARY   = '#35708f' // cz-primary
-const INK       = '#1f3a44' // cz-ink
-const GOLD      = '#d4af37' // cz-accent
-const GOLD_BG   = '#f7ecd9' // cz-gold-light
-const SEA_GREEN = '#4fae8a' // cz-lavender (sea-green accent, used for discounts)
-const TEXT      = '#1f3a44'
-const MUTED     = '#5c7a86'
-const LINE      = '#d7e2e6'
-const TOTAL_BG  = '#eaf2ef'
+// Matches Option B: Deep Navy Executive Theme (#0c4a6e Deep Navy, #38bdf8 Sky Blue, #e0f2fe Ice Blue)
+const HEADER_BG = '#0c4a6e' // Deep Ocean Navy header
+const PRIMARY   = '#0c4a6e' // Primary Navy
+const INK       = '#0c4a6e' // Navy headings
+const GOLD      = '#38bdf8' // Sky Blue title & accent
+const GOLD_BG   = '#e0f2fe' // Soft Ice Blue tint
+const SEA_GREEN = '#0284c7' // Bright Ocean Cyan
+const TEXT      = '#0f172a' // Dark Slate Text
+const MUTED     = '#64748b' // Slate Muted
+const LINE      = '#e2e8f0' // Light Slate Line
+const TOTAL_BG  = '#e0f2fe' // Soft Ice Blue total summary box
 
 // site-settings.logo is an admin-supplied string with no shape validation today (see
 // docs/AUDIT.md) — without this allowlist, setting it to an internal/link-local URL would make
