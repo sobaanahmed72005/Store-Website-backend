@@ -16,16 +16,17 @@ export async function sanitizeImageBuffer(buffer, { trim = false } = {}) {
     throw new Error('Unsupported or unrecognized image format');
   }
 
-  // Logos are commonly exported on an oversized canvas with lots of transparent margin (the
-  // mark itself only occupying a small fraction of the image), which makes it look tiny no
-  // matter how large the display box is sized. Trimming that margin here — once, at upload —
-  // means every place the logo renders gets it tightly cropped, instead of each caller having
-  // to compensate for whatever padding a given upload happens to carry.
-  let output = pipeline.toFormat(metadata.format);
+  // Convert uploaded raster images (jpeg, png, webp, avif) to high-quality WebP format with
+  // full alpha channel transparency preserved. Animated GIFs are kept in gif format to preserve animation.
+  const targetFormat = metadata.format === 'gif' ? 'gif' : 'webp';
+  let output = targetFormat === 'webp'
+    ? pipeline.webp({ quality: 85, alphaQuality: 100, effort: 4 })
+    : pipeline.toFormat(targetFormat);
+
   if (trim) output = output.trim();
 
   const clean = await output.toBuffer();
-  return { buffer: clean, format: metadata.format };
+  return { buffer: clean, format: targetFormat };
 }
 
 // Many logos are a wordmark: a small icon glyph followed by the business name. That's fine as
