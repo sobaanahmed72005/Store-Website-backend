@@ -169,9 +169,34 @@ export async function createOrder(req, res) {
     'SELECT value FROM site_content WHERE business_id = ? AND content_key = ?',
     [req.business.id, 'shipping-settings']
   );
-  const shippingFee = shippingRows.length > 0
+  const baseShippingFee = shippingRows.length > 0
     ? Number((typeof shippingRows[0].value === 'string' ? JSON.parse(shippingRows[0].value) : shippingRows[0].value).fee ?? 1800)
     : 1800;
+
+  // First-order check for automatic Free Shipping
+  let isFirstOrder = true;
+  if (user_id) {
+    const [userOrderRows] = await pool.query(
+      "SELECT COUNT(*) AS cnt FROM orders WHERE business_id = ? AND user_id = ? AND status != 'cancelled'",
+      [req.business.id, user_id]
+    );
+    if (userOrderRows[0].cnt > 0) isFirstOrder = false;
+  }
+  if (isFirstOrder && (email || phone)) {
+    const conditions = [];
+    const params = [req.business.id];
+    if (email?.trim()) { conditions.push('email = ?'); params.push(email.trim()); }
+    if (phone?.trim()) { conditions.push('phone = ?'); params.push(phone.trim()); }
+    if (conditions.length > 0) {
+      const [guestOrderRows] = await pool.query(
+        `SELECT COUNT(*) AS cnt FROM orders WHERE business_id = ? AND (${conditions.join(' OR ')}) AND status != 'cancelled'`,
+        params
+      );
+      if (guestOrderRows[0].cnt > 0) isFirstOrder = false;
+    }
+  }
+
+  const shippingFee = isFirstOrder ? 0 : baseShippingFee;
 
   const connection = await pool.getConnection();
   try {
@@ -923,5 +948,51 @@ export async function updateOrderTracking(req, res) {
     [courier_name || null, tracking_number || null, req.params.id, req.business.id]
   );
   if (result.affectedRows === 0) return res.status(404).json({ error: 'Order not found' });
-  res.json({ message: 'Tracking info updated' });
+  res.json({ message: 'Tracking details updated successfully' });
+}
+
+export async function checkFirstOrderStatus(req, res) {
+  try {
+    const userId = req.user?.id;
+    const { email, phone } = req.query;
+
+    let isFirstOrder = true;
+
+    if (userId) {
+      const [rows] = await pool.query(
+        "SELECT COUNT(*) AS cnt FROM orders WHERE business_id = ? AND user_id = ? AND status != 'cancelled'",
+        [req.business.id, userId]
+      );
+      if (rows[0].cnt > 0) {
+        isFirstOrder = false;
+      }
+    }
+
+    if (isFirstOrder && (email || phone)) {
+      const conditions = [];
+      const params = [req.business.id];
+      if (email?.trim()) {
+        conditions.push('email = ?');
+        params.push(email.trim());
+      }
+      if (phone?.trim()) {
+        conditions.push('phone = ?');
+        params.push(phone.trim());
+      }
+
+      if (conditions.length > 0) {
+        const [rows] = await pool.query(
+          `SELECT COUNT(*) AS cnt FROM orders WHERE business_id = ? AND (${conditions.join(' OR ')}) AND status != 'cancelled'`,
+          params
+        );
+        if (rows[0].cnt > 0) {
+          isFirstOrder = false;
+        }
+      }
+    }
+
+    return res.json({ isFirstOrder });
+  } catch (err) {
+    return res.json({ isFirstOrder: true });
+  }
 }

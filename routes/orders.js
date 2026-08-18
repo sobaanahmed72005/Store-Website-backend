@@ -1,11 +1,12 @@
 import express from 'express';
-import { createOrder, getOrdersByUser, uploadPaymentProof, servePaymentProof } from '../controllers/ordersController.js';
+import { createOrder, getOrdersByUser, uploadPaymentProof, servePaymentProof, checkFirstOrderStatus } from '../controllers/ordersController.js';
 import { requireAnyAuth, requireCustomer, requireSelfOrAdmin } from '../middleware/auth.js';
 import { paymentProofUpload } from '../middleware/upload.js';
 import { checkoutRateLimit, paymentProofRateLimit } from '../middleware/checkoutRateLimit.js';
 
 const router = express.Router();
 
+router.get('/check-first-order', requireCustomer, checkFirstOrderStatus);
 router.post('/', requireCustomer, checkoutRateLimit, createOrder);
 router.post('/payment-proof', requireCustomer, paymentProofRateLimit, paymentProofUpload.single('image'), uploadPaymentProof);
 // servePaymentProof checks admin-or-owner internally (there's no :userId param on this route to
