@@ -378,7 +378,7 @@ export async function getProducts(req, res) {
   // The rating join only runs when actually sorting by rating — every other listing request
   // (the overwhelming majority) skips the extra join and aggregate entirely.
   const needsRatingJoin = sort === 'rating';
-  let sql = `SELECT p.*, c.name AS category_name, c.slug AS category_slug FROM products p LEFT JOIN categories c ON p.category_id = c.id${
+  let sql = `SELECT p.*, c.name AS category_name, c.slug AS category_slug, c.parent_id AS category_parent_id FROM products p LEFT JOIN categories c ON p.category_id = c.id${
     needsRatingJoin
       ? " LEFT JOIN (SELECT product_id, AVG(rating) AS avg_rating FROM product_reviews WHERE status = 'approved' GROUP BY product_id) rv ON rv.product_id = p.id"
       : ''
