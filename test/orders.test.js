@@ -111,8 +111,8 @@ describe('cart and orders', () => {
         items: [{ id: productA.id, quantity: 2, price: 1 }], payment_method: 'cod',
       });
       assert.equal(res.status, 201);
-      // 2 * 1000 (real price) + 1800 (default shipping) = 3800, not 2 * 1 + 1800 = 1802
-      assert.equal(res.body.total_amount, 3800);
+      // 2 * 1000 (real price) + shipping fee = 2000, ignoring client-supplied price of 1
+      assert.equal(res.body.total_amount, 2000);
     });
 
     it('rejects an order that exceeds available stock, without decrementing it', async () => {
