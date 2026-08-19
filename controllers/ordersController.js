@@ -65,9 +65,10 @@ export async function createOrder(req, res) {
     'SELECT value FROM site_content WHERE business_id = ? AND content_key = ?',
     [req.business.id, 'payment-settings']
   );
-  const paymentMethods = paymentRows.length > 0
-    ? (typeof paymentRows[0].value === 'string' ? JSON.parse(paymentRows[0].value) : paymentRows[0].value).methods
+  const parsedValue = paymentRows.length > 0
+    ? (typeof paymentRows[0].value === 'string' ? JSON.parse(paymentRows[0].value) : paymentRows[0].value)
     : {};
+  const paymentMethods = parsedValue?.methods || parsedValue || {};
   if (!payment_method || !paymentMethods?.[payment_method]?.enabled) {
     return res.status(400).json({ error: 'Please select a valid payment method' });
   }

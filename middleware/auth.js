@@ -19,6 +19,9 @@ function hasUntrustedOrigin(req) {
   if (!origin) return false;
   try {
     const url = new URL(origin);
+    if (process.env.NODE_ENV === 'development' && (url.hostname === 'localhost' || url.hostname === '127.0.0.1')) {
+      return false;
+    }
     if (url.protocol !== FRONTEND_ORIGIN.protocol || url.port !== FRONTEND_ORIGIN.port) return true;
     return url.hostname !== FRONTEND_ORIGIN.hostname && !url.hostname.endsWith(`.${FRONTEND_ORIGIN.hostname}`);
   } catch {
