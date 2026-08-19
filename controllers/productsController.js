@@ -446,8 +446,8 @@ export async function getProducts(req, res) {
   let orderBy = SORT_CLAUSES[sort];
   let extraParams = [];
   if (!orderBy && search) {
-    orderBy = `(p.name LIKE ?) DESC, (p.name LIKE ?) DESC, (p.brand LIKE ?) DESC, p.created_at DESC`;
-    extraParams = [`${search}%`, `%${search}%`, `%${search}%`];
+    orderBy = `(p.name LIKE ?) DESC, (p.name LIKE ?) DESC, (c.name LIKE ?) DESC, (p.brand LIKE ?) DESC, (p.description LIKE ?) DESC, p.created_at DESC`;
+    extraParams = [`${search}%`, `%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`];
   } else if (!orderBy) {
     orderBy = SORT_CLAUSES.newest;
   }
@@ -480,10 +480,14 @@ export async function getProductSuggestions(req, res) {
   const [rows] = await pool.query(
     `SELECT p.id, p.name, p.slug, p.image, p.price, p.discount_price, p.is_on_sale, c.name AS category_name
      FROM products p LEFT JOIN categories c ON p.category_id = c.id
-     WHERE p.business_id = ? AND (p.name LIKE ? OR p.brand LIKE ? OR c.name LIKE ?)
-     ORDER BY (p.name LIKE ?) DESC, (p.name LIKE ?) DESC, (p.brand LIKE ?) DESC, p.name ASC
+     WHERE p.business_id = ? AND (p.name LIKE ? OR p.brand LIKE ? OR p.description LIKE ? OR c.name LIKE ?)
+     ORDER BY (p.name LIKE ?) DESC, (p.name LIKE ?) DESC, (c.name LIKE ?) DESC, (p.brand LIKE ?) DESC, (p.description LIKE ?) DESC, p.name ASC
      LIMIT 8`,
-    [req.business.id, `%${q}%`, `%${q}%`, `%${q}%`, `${q}%`, `%${q}%`, `%${q}%`]
+    [
+      req.business.id,
+      `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`,
+      `${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`
+    ]
   );
   res.json(rows);
 }
