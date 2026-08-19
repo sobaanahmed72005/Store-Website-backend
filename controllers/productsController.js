@@ -378,7 +378,7 @@ export async function getProducts(req, res) {
   // The rating join only runs when actually sorting by rating — every other listing request
   // (the overwhelming majority) skips the extra join and aggregate entirely.
   const needsRatingJoin = sort === 'rating';
-  let sql = `SELECT p.*, c.name AS category_name, c.slug AS category_slug, c.parent_id AS category_parent_id FROM products p LEFT JOIN categories c ON p.category_id = c.id${
+  let sql = `SELECT p.*, c.name AS category_name, c.slug AS category_slug, c.parent_id AS category_parent_id, parent_c.name AS parent_category_name FROM products p LEFT JOIN categories c ON p.category_id = c.id LEFT JOIN categories parent_c ON c.parent_id = parent_c.id${
     needsRatingJoin
       ? " LEFT JOIN (SELECT product_id, AVG(rating) AS avg_rating FROM product_reviews WHERE status = 'approved' GROUP BY product_id) rv ON rv.product_id = p.id"
       : ''
@@ -392,8 +392,8 @@ export async function getProducts(req, res) {
     params.push(...categoryIds);
   }
   if (search) {
-    where.push('(p.name LIKE ? OR p.brand LIKE ? OR p.description LIKE ? OR c.name LIKE ?)');
-    params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+    where.push('(p.name LIKE ? OR p.brand LIKE ? OR p.description LIKE ? OR c.name LIKE ? OR parent_c.name LIKE ?)');
+    params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
   }
   if (featured) where.push('p.is_featured = 1');
   if (new_arrival) where.push('p.is_new_arrival = 1');
@@ -439,15 +439,15 @@ export async function getProducts(req, res) {
   const whereSql = ' WHERE ' + where.join(' AND ');
 
   const [[{ total }]] = await pool.query(
-    `SELECT COUNT(*) AS total FROM products p LEFT JOIN categories c ON p.category_id = c.id${whereSql}`,
+    `SELECT COUNT(*) AS total FROM products p LEFT JOIN categories c ON p.category_id = c.id LEFT JOIN categories parent_c ON c.parent_id = parent_c.id${whereSql}`,
     params
   );
 
   let orderBy = SORT_CLAUSES[sort];
   let extraParams = [];
   if (!orderBy && search) {
-    orderBy = `(p.name LIKE ?) DESC, (p.name LIKE ?) DESC, (c.name LIKE ?) DESC, (p.brand LIKE ?) DESC, (p.description LIKE ?) DESC, p.created_at DESC`;
-    extraParams = [`${search}%`, `%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`];
+    orderBy = `(p.name LIKE ?) DESC, (p.name LIKE ?) DESC, (c.name LIKE ? OR parent_c.name LIKE ?) DESC, (p.brand LIKE ?) DESC, (p.description LIKE ?) DESC, p.created_at DESC`;
+    extraParams = [`${search}%`, `%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`];
   } else if (!orderBy) {
     orderBy = SORT_CLAUSES.newest;
   }
@@ -479,14 +479,16 @@ export async function getProductSuggestions(req, res) {
 
   const [rows] = await pool.query(
     `SELECT p.id, p.name, p.slug, p.image, p.price, p.discount_price, p.is_on_sale, c.name AS category_name
-     FROM products p LEFT JOIN categories c ON p.category_id = c.id
-     WHERE p.business_id = ? AND (p.name LIKE ? OR p.brand LIKE ? OR p.description LIKE ? OR c.name LIKE ?)
-     ORDER BY (p.name LIKE ?) DESC, (p.name LIKE ?) DESC, (c.name LIKE ?) DESC, (p.brand LIKE ?) DESC, (p.description LIKE ?) DESC, p.name ASC
+     FROM products p 
+     LEFT JOIN categories c ON p.category_id = c.id
+     LEFT JOIN categories parent_c ON c.parent_id = parent_c.id
+     WHERE p.business_id = ? AND (p.name LIKE ? OR p.brand LIKE ? OR p.description LIKE ? OR c.name LIKE ? OR parent_c.name LIKE ?)
+     ORDER BY (p.name LIKE ?) DESC, (p.name LIKE ?) DESC, (c.name LIKE ? OR parent_c.name LIKE ?) DESC, (p.brand LIKE ?) DESC, (p.description LIKE ?) DESC, p.name ASC
      LIMIT 8`,
     [
       req.business.id,
-      `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`,
-      `${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`
+      `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`,
+      `${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`
     ]
   );
   res.json(rows);
