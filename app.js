@@ -43,7 +43,7 @@ function isAllowedOrigin(origin) {
   if (!origin) return true;
   try {
     const url = new URL(origin);
-    if (process.env.NODE_ENV === 'development' && (url.hostname === 'localhost' || url.hostname === '127.0.0.1')) {
+    if (NODE_ENV === 'development' && (url.hostname === 'localhost' || url.hostname === '127.0.0.1')) {
       return true;
     }
     if (url.protocol !== FRONTEND_ORIGIN.protocol || url.port !== FRONTEND_ORIGIN.port) return false;
