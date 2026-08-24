@@ -1,9 +1,27 @@
 import pool from '../config/db.js';
 import { TEMPLATE_DEFAULTS } from '../utils/emailLoader.js';
 
-const ALLOWED_KEYS = ['about-us', 'footer-brand', 'site-settings', 'policies', 'currency-settings', 'shipping-settings', 'privacy-policy', 'payment-settings', 'hero-banners', 'announcement-bar', 'email-templates'];
+const ALLOWED_KEYS = ['about-us', 'footer-brand', 'site-settings', 'policies', 'currency-settings', 'shipping-settings', 'privacy-policy', 'payment-settings', 'hero-banners', 'announcement-bar', 'email-templates', 'homepage-seo'];
 
 const DEFAULTS = {
+  'homepage-seo': {
+    title: "Pakistan's Premier IT Hardware & Technology Store",
+    intro: "Welcome to IT Solutions — your authorized supplier of genuine IT equipment, office networking solutions, surveillance systems, and high-performance computing hardware in Pakistan. Whether you are setting up home security or equipping a modern corporate office, we offer competitive pricing, official brand warranty, and fast nationwide Cash on Delivery.",
+    columns: [
+      {
+        heading: 'Laptops & Computing',
+        description: 'Explore Apple MacBook, Dell XPS, HP ProBook, Lenovo ThinkPad, and ASUS ROG gaming laptops with official international warranty and authentic power adapters.',
+      },
+      {
+        heading: '4K Security & Surveillance',
+        description: 'Secure your home and business with Hikvision, EZVIZ, and IMOU 4K security cameras, wireless PTZ dome cameras, NVR recording units, and smart night-vision sensors.',
+      },
+      {
+        heading: 'Networking & Solar Energy',
+        description: 'Upgrade your connectivity with Wi-Fi 6 Gigabit routers, enterprise switches, and hybrid solar inverters for continuous uninterrupted power supply.',
+      },
+    ],
+  },
   'site-settings': {
     siteName: 'My Store',
     logo: null,
