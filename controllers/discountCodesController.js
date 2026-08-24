@@ -53,15 +53,16 @@ export async function resolveDiscount({ businessId, userId, code, subtotal, quer
 }
 
 export async function validateCode(req, res) {
-  const { code, subtotal } = req.body;
-  if (!code || subtotal == null) return res.status(400).json({ error: 'code and subtotal are required' });
+  const code = req.body.code;
+  const rawSubtotal = req.body.subtotal != null ? req.body.subtotal : req.body.subTotal;
+  if (!code || rawSubtotal == null) return res.status(400).json({ error: 'code and subtotal are required' });
 
   try {
     const { discount, discountAmount } = await resolveDiscount({
       businessId: req.business.id,
       userId: req.user.id,
       code,
-      subtotal: Number(subtotal),
+      subtotal: Number(rawSubtotal),
     });
     res.json({
       valid: true,
@@ -69,11 +70,14 @@ export async function validateCode(req, res) {
       discount_type: discount.discount_type,
       discount_value: Number(discount.discount_value),
       discount_amount: discountAmount,
+      discount: {
+        code: discount.code,
+        type: discount.discount_type,
+        value: Number(discount.discount_value),
+        discountAmount,
+      },
     });
   } catch (err) {
-    // resolveDiscount only ever sets err.status on the expected, hand-written validation
-    // failures above — anything without a status (e.g. a DB connection error) isn't meant for
-    // the client, so let it fall through to the global error handler instead of echoing it here.
     if (!err.status) throw err;
     res.status(err.status).json({ error: err.message });
   }
