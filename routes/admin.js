@@ -1,7 +1,7 @@
 import express from 'express';
 import { requireAdmin } from '../middleware/auth.js';
-import { upload, uploadVideo, uploadDataset } from '../middleware/upload.js';
-import { getStats, uploadImage, uploadProductVideo, uploadProductDataset } from '../controllers/adminController.js';
+import { upload, uploadVideo, uploadDataset, uploadModel3D } from '../middleware/upload.js';
+import { getStats, uploadImage, uploadProductVideo, uploadProductDataset, uploadProductModel3D } from '../controllers/adminController.js';
 import { listAuditLogs } from '../utils/auditLog.js';
 import {
   getRevenueTrend,
