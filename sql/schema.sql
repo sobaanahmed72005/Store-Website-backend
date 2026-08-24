@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS products (
   image VARCHAR(255),
   video VARCHAR(255),
   dataset VARCHAR(255),
+  model_3d VARCHAR(255),
   content_image VARCHAR(255),
   content_image_caption VARCHAR(255),
   content_video_url VARCHAR(255),

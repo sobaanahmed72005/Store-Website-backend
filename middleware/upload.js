@@ -51,9 +51,18 @@ function datasetFileFilter(req, file, cb) {
   rejectUpload(cb, 'Only PDF or Word documents are allowed');
 }
 
+function model3DFileFilter(req, file, cb) {
+  const ext = path.extname(file.originalname).toLowerCase();
+  if (ext === '.glb' || ext === '.gltf' || ext === '.obj' || file.mimetype.includes('gltf') || file.mimetype.includes('octet-stream')) {
+    return cb(null, true);
+  }
+  rejectUpload(cb, 'Only .glb or .gltf 3D model files are allowed');
+}
+
 const limits = { fileSize: 5 * 1024 * 1024 };
 const videoLimits = { fileSize: 50 * 1024 * 1024 };
 const datasetLimits = { fileSize: 50 * 1024 * 1024 };
+const model3DLimits = { fileSize: 100 * 1024 * 1024 };
 
 // All upload kinds land in memory, not on disk — utils/uploadHandler.js validates/re-encodes
 // the buffer via sharp and only then writes it to its final destination (local disk or object
@@ -78,3 +87,6 @@ export const uploadVideo = multer({ storage, fileFilter: videoFileFilter, limits
 // Product "Dataset" attachments (spec sheet/datasheet, PDF or Word) — same public-once-processed
 // model as `upload`, with a document-specific mimetype allowlist and size cap.
 export const uploadDataset = multer({ storage, fileFilter: datasetFileFilter, limits: datasetLimits });
+
+// Product 3D model attachments (.glb or .gltf)
+export const uploadModel3D = multer({ storage, fileFilter: model3DFileFilter, limits: model3DLimits });

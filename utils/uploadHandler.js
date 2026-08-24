@@ -123,3 +123,19 @@ export async function handleDatasetUpload(req, res) {
   await fs.writeFile(path.join(uploadsDir, filename), req.file.buffer);
   res.status(201).json({ url: `/uploads/${filename}` });
 }
+
+export async function handleModel3DUpload(req, res) {
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+
+  const ext = path.extname(req.file.originalname).toLowerCase().replace('.', '') || 'glb';
+  const filename = `${Date.now()}-${Math.round(Math.random() * 1e9)}.${ext}`;
+
+  if (isObjectStorageConfigured) {
+    const key = `uploads/${filename}`;
+    await putObject(key, req.file.buffer, 'model/gltf-binary');
+    return res.status(201).json({ url: publicUrlFor(key) });
+  }
+
+  await fs.writeFile(path.join(uploadsDir, filename), req.file.buffer);
+  res.status(201).json({ url: `/uploads/${filename}` });
+}

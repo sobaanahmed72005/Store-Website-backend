@@ -74,6 +74,7 @@ router.get('/stats', getStats);
 router.post('/upload', upload.single('image'), uploadImage);
 router.post('/upload-video', uploadVideo.single('video'), uploadProductVideo);
 router.post('/upload-dataset', uploadDataset.single('dataset'), uploadProductDataset);
+router.post('/upload-model-3d', uploadModel3D.single('model_3d'), uploadProductModel3D);
 router.get('/audit-log', listAuditLogs);
 
 router.get('/reports/revenue-trend', getRevenueTrend);
