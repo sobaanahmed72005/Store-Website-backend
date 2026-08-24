@@ -28,16 +28,18 @@ export async function resolveDiscount({ businessId, userId, code, subtotal, quer
   }
   if (discount.expires_at) {
     const expDate = new Date(discount.expires_at);
-    // If expires_at is a date without time or at midnight (00:00:00), extend it to 23:59:59.999 of that day
-    const rawExpStr = String(discount.expires_at || '').trim();
-    if (
-      /^\d{4}-\d{2}-\d{2}$/.test(rawExpStr) ||
-      rawExpStr.includes('T00:00:00') ||
-      rawExpStr.endsWith(' 00:00:00')
-    ) {
+    const now = new Date();
+    const isSameDay =
+      expDate.getFullYear() === now.getFullYear() &&
+      expDate.getMonth() === now.getMonth() &&
+      expDate.getDate() === now.getDate();
+    const isMidnight = expDate.getHours() === 0 && expDate.getMinutes() === 0;
+
+    if (isSameDay || isMidnight) {
       expDate.setHours(23, 59, 59, 999);
     }
-    if (expDate < new Date()) {
+
+    if (expDate < now) {
       const err = new Error('This discount code has expired');
       err.status = 400;
       throw err;
