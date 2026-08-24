@@ -39,6 +39,18 @@ const FRONTEND_ORIGIN = new URL(FRONTEND_URL);
 // matching on hostname alone would let anything else bound to the same host (e.g. any other
 // process listening on localhost during local dev, on any port) pass this check and receive
 // credentialed cross-origin responses.
+function getBaseDomain(hostname) {
+  const parts = hostname.split('.');
+  if (parts.length >= 2) {
+    return parts.slice(-2).join('.');
+  }
+  return hostname;
+}
+
+const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean)
+  : [];
+
 function isAllowedOrigin(origin) {
   if (!origin) return true;
   try {
@@ -46,8 +58,22 @@ function isAllowedOrigin(origin) {
     if (NODE_ENV === 'development' && (url.hostname === 'localhost' || url.hostname === '127.0.0.1')) {
       return true;
     }
-    if (url.protocol !== FRONTEND_ORIGIN.protocol || url.port !== FRONTEND_ORIGIN.port) return false;
-    return url.hostname === FRONTEND_ORIGIN.hostname || url.hostname.endsWith(`.${FRONTEND_ORIGIN.hostname}`);
+    if (ALLOWED_ORIGINS.length > 0 && (ALLOWED_ORIGINS.includes(origin) || ALLOWED_ORIGINS.includes(url.origin))) {
+      return true;
+    }
+    if (url.protocol !== FRONTEND_ORIGIN.protocol) return false;
+    if (FRONTEND_ORIGIN.port && url.port !== FRONTEND_ORIGIN.port) return false;
+
+    const targetHost = url.hostname;
+    const frontendHost = FRONTEND_ORIGIN.hostname;
+    const baseDomain = getBaseDomain(frontendHost);
+
+    return (
+      targetHost === frontendHost ||
+      targetHost.endsWith(`.${frontendHost}`) ||
+      targetHost === baseDomain ||
+      targetHost.endsWith(`.${baseDomain}`)
+    );
   } catch {
     return false;
   }
