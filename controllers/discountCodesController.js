@@ -26,10 +26,22 @@ export async function resolveDiscount({ businessId, userId, code, subtotal, quer
     err.status = 400;
     throw err;
   }
-  if (discount.expires_at && new Date(discount.expires_at) < new Date()) {
-    const err = new Error('This discount code has expired');
-    err.status = 400;
-    throw err;
+  if (discount.expires_at) {
+    const expDate = new Date(discount.expires_at);
+    // If expires_at is a date without time or at midnight (00:00:00), extend it to 23:59:59.999 of that day
+    const rawExpStr = String(discount.expires_at || '').trim();
+    if (
+      /^\d{4}-\d{2}-\d{2}$/.test(rawExpStr) ||
+      rawExpStr.includes('T00:00:00') ||
+      rawExpStr.endsWith(' 00:00:00')
+    ) {
+      expDate.setHours(23, 59, 59, 999);
+    }
+    if (expDate < new Date()) {
+      const err = new Error('This discount code has expired');
+      err.status = 400;
+      throw err;
+    }
   }
 
   if (!discount.reusable) {
