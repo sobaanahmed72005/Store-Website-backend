@@ -14,6 +14,7 @@ let product;
 let adminAgent;
 let customerAgent;
 let customerId;
+let customerEmail;
 
 async function createTestOrder(agent) {
   const res = await agent.post('/api/orders').send({
@@ -51,7 +52,7 @@ describe('admin order management', () => {
     assert.equal(adminLogin.status, 200);
 
     customerAgent = newAgent();
-    const customerEmail = uniqueEmail('customerorders');
+    customerEmail = uniqueEmail('customerorders');
     await customerAgent.post('/api/auth/register').send({ name: 'Test Customer', email: customerEmail, password: PASSWORD });
     const me = await customerAgent.get('/api/auth/me');
     customerId = me.body.user.id;
@@ -176,4 +177,44 @@ describe('admin order management', () => {
       await fs.unlink(path.join(paymentProofsDir, filename)).catch(() => {});
     });
   });
+
+  describe('City update & unshipped order sync', () => {
+    it('allows admin to edit customer city and syncs to unshipped orders', async () => {
+      const orderId = await createTestOrder(customerAgent);
+      const res = await adminAgent.put(`/api/admin/customers/${customerId}/city`).send({ saved_city: 'Lahore' });
+      assert.equal(res.status, 200);
+      assert.equal(res.body.saved_city, 'Lahore');
+
+      const orderRes = await adminAgent.get(`/api/admin/orders/${orderId}`);
+      assert.equal(orderRes.body.shipping_city, 'Lahore');
+    });
+
+    it('allows admin to edit order city and syncs to customer & unshipped orders', async () => {
+      const orderId = await createTestOrder(customerAgent);
+      const res = await adminAgent.put(`/api/admin/orders/${orderId}/city`).send({ shipping_city: 'Islamabad' });
+      assert.equal(res.status, 200);
+      assert.equal(res.body.shipping_city, 'Islamabad');
+
+      const customerRes = await adminAgent.get(`/api/admin/customers/${customerId}`);
+      assert.equal(customerRes.body.saved_city, 'Islamabad');
+    });
+
+    it('syncs unshipped orders when customer updates profile address/city/phone', async () => {
+      const orderId = await createTestOrder(customerAgent);
+      const profileRes = await customerAgent.put('/api/auth/me').send({
+        name: 'Test Customer',
+        email: customerEmail,
+        phone: '03119998877',
+        saved_address: 'New Street 123',
+        saved_city: 'Rawalpindi',
+      });
+      assert.equal(profileRes.status, 200);
+
+      const orderRes = await adminAgent.get(`/api/admin/orders/${orderId}`);
+      assert.equal(orderRes.body.shipping_city, 'Rawalpindi');
+      assert.equal(orderRes.body.shipping_address, 'New Street 123');
+      assert.equal(orderRes.body.phone, '03119998877');
+    });
+  });
 });
+

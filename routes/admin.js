@@ -37,9 +37,10 @@ import {
   updateOrderTracking,
   downloadInvoice,
   bookOrderCourier,
+  updateOrderCity,
 } from '../controllers/ordersController.js';
 import { updateContent } from '../controllers/contentController.js';
-import { getCustomers, getCustomerById } from '../controllers/customersController.js';
+import { getCustomers, getCustomerById, updateCustomerCity } from '../controllers/customersController.js';
 import {
   listForCategory,
   createAttribute,
@@ -106,12 +107,14 @@ router.get('/orders/:id/invoice', downloadInvoice);
 router.get('/orders/:id', getOrderById);
 router.put('/orders/:id/status', updateOrderStatus);
 router.put('/orders/:id/tracking', updateOrderTracking);
+router.put('/orders/:id/city', updateOrderCity);
 router.post('/orders/:id/book-courier', bookOrderCourier);
 
 router.put('/content/:key', updateContent);
 
 router.get('/customers', getCustomers);
 router.get('/customers/:id', getCustomerById);
+router.put('/customers/:id/city', updateCustomerCity);
 
 router.get('/categories/:id/attributes', listForCategory);
 router.post('/categories/:id/attributes', createAttribute);

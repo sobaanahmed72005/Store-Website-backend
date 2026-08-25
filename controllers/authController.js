@@ -222,7 +222,7 @@ export async function me(req, res) {
   // hits the DB on every request, so the fuller profile is fetched here instead, on this one
   // lower-frequency endpoint.
   const [rows] = await pool.query(
-    'SELECT id, name, email, role, email_verified, saved_phone, saved_address, saved_city, totp_enabled FROM users WHERE id = ? AND business_id = ?',
+    'SELECT id, name, email, role, email_verified, phone, saved_phone, saved_address, saved_city, totp_enabled FROM users WHERE id = ? AND business_id = ?',
     [req.user.id, req.business.id]
   );
   if (rows.length === 0) return res.status(404).json({ error: 'User not found' });
@@ -392,7 +392,7 @@ export async function disableTwoFactor(req, res) {
 }
 
 export async function updateProfile(req, res) {
-  const { name, email, currentPassword } = req.body;
+  const { name, email, phone, saved_phone, saved_address, saved_city, currentPassword } = req.body;
   if (!name?.trim() || !email?.trim()) {
     return res.status(400).json({ error: 'name and email are required' });
   }
@@ -409,17 +409,55 @@ export async function updateProfile(req, res) {
     }
   }
 
+  const newPhone = phone !== undefined ? phone?.trim() : undefined;
+  const newSavedPhone = saved_phone !== undefined ? saved_phone?.trim() : newPhone;
+  const newSavedAddress = saved_address !== undefined ? saved_address?.trim() : undefined;
+  const newSavedCity = saved_city !== undefined ? saved_city?.trim() : undefined;
+
   try {
-    await pool.query('UPDATE users SET name = ?, email = ? WHERE id = ?', [name.trim(), email.trim(), req.user.id]);
+    await pool.query(
+      `UPDATE users SET name = ?, email = ?,
+       phone = COALESCE(?, phone),
+       saved_phone = COALESCE(?, saved_phone),
+       saved_address = COALESCE(?, saved_address),
+       saved_city = COALESCE(?, saved_city)
+       WHERE id = ?`,
+      [name.trim(), email.trim(), newPhone ?? null, newSavedPhone ?? null, newSavedAddress ?? null, newSavedCity ?? null, req.user.id]
+    );
   } catch (err) {
     if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'Email already in use' });
     throw err;
   }
 
-  const [rows] = await pool.query('SELECT email_verified FROM users WHERE id = ?', [req.user.id]);
-  const user = { id: req.user.id, name: name.trim(), email: email.trim(), role: req.user.role, email_verified: rows[0]?.email_verified };
-  // Just refreshing the cookie's payload (name/email may have changed) — reuse the same
-  // session rather than minting a new one, since nothing here needs to be revoked.
+  // Automatically update unshipped orders for this user with latest address, city, phone
+  const updateOrderFields = [];
+  const updateOrderParams = [];
+  if (newSavedAddress !== undefined && newSavedAddress !== null) {
+    updateOrderFields.push('shipping_address = ?');
+    updateOrderParams.push(newSavedAddress);
+  }
+  if (newSavedCity !== undefined && newSavedCity !== null) {
+    updateOrderFields.push('shipping_city = ?');
+    updateOrderParams.push(newSavedCity);
+  }
+  if (newPhone !== undefined && newPhone !== null) {
+    updateOrderFields.push('phone = ?');
+    updateOrderParams.push(newPhone);
+  }
+
+  if (updateOrderFields.length > 0) {
+    updateOrderParams.push(req.user.id, req.business.id);
+    await pool.query(
+      `UPDATE orders SET ${updateOrderFields.join(', ')} WHERE user_id = ? AND business_id = ? AND status IN ('pending', 'confirmed', 'packed')`,
+      updateOrderParams
+    );
+  }
+
+  const [rows] = await pool.query(
+    'SELECT id, name, email, role, email_verified, phone, saved_phone, saved_address, saved_city, totp_enabled FROM users WHERE id = ?',
+    [req.user.id]
+  );
+  const user = rows[0];
   const accessTokenExpiresAt = issueSession(res, user, req.business.id, req.sessionId);
   res.json({ user, accessTokenExpiresAt });
 }

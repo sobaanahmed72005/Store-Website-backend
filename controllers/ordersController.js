@@ -312,10 +312,16 @@ export async function createOrder(req, res) {
     res.status(201).json({ id: orderId, total_amount: totalAmount });
 
     // Persist shipping details on the user record so checkout pre-fills next time
+    // and automatically sync updated address, city & phone to any other unshipped orders of this customer
     pool.query(
-      'UPDATE users SET saved_phone = ?, saved_address = ?, saved_city = ? WHERE id = ?',
-      [phone || null, shipping_address || null, shipping_city || null, user_id]
-    ).catch(() => {});
+      'UPDATE users SET saved_phone = ?, saved_address = ?, saved_city = ? WHERE id = ? AND business_id = ?',
+      [phone || null, shipping_address || null, shipping_city || null, user_id, req.business.id]
+    ).then(() => {
+      return pool.query(
+        `UPDATE orders SET shipping_address = ?, shipping_city = ?, phone = ? WHERE user_id = ? AND business_id = ? AND status IN ('pending', 'confirmed', 'packed') AND id != ?`,
+        [shipping_address, shipping_city || null, phone, user_id, req.business.id, orderId]
+      );
+    }).catch(() => {});
 
     if (email) {
       const [orderTpl, storeName] = await Promise.all([
@@ -997,3 +1003,47 @@ export async function checkFirstOrderStatus(req, res) {
     return res.json({ isFirstOrder: true });
   }
 }
+
+export async function updateOrderCity(req, res) {
+  const { shipping_city } = req.body;
+  const newCity = (shipping_city || '').trim();
+  if (!newCity) {
+    return res.status(400).json({ error: 'City is required' });
+  }
+
+  const [orderRows] = await pool.query(
+    'SELECT user_id FROM orders WHERE id = ? AND business_id = ?',
+    [req.params.id, req.business.id]
+  );
+  if (orderRows.length === 0) return res.status(404).json({ error: 'Order not found' });
+
+  const userId = orderRows[0].user_id;
+
+  await pool.query(
+    'UPDATE orders SET shipping_city = ? WHERE id = ? AND business_id = ?',
+    [newCity, req.params.id, req.business.id]
+  );
+
+  if (userId) {
+    await pool.query(
+      'UPDATE users SET saved_city = ? WHERE id = ? AND business_id = ?',
+      [newCity, userId, req.business.id]
+    );
+
+    await pool.query(
+      `UPDATE orders SET shipping_city = ? WHERE user_id = ? AND business_id = ? AND status IN ('pending', 'confirmed', 'packed')`,
+      [newCity, userId, req.business.id]
+    );
+  }
+
+  logAudit({
+    req,
+    action: 'order.update_city',
+    entityType: 'order',
+    entityId: req.params.id,
+    details: { shipping_city: newCity, userId }
+  });
+
+  res.json({ message: 'Order city updated successfully', shipping_city: newCity });
+}
+
