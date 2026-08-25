@@ -178,6 +178,7 @@ async function attachSingleProductExtras(rows) {
 }
 
 async function setProductAttributeOptions(connection, productId, optionIds) {
+  if (optionIds === undefined) return;
   await connection.query('DELETE FROM product_attribute_values WHERE product_id = ?', [productId]);
   if (!optionIds?.length) return;
   // Deduped defensively — a repeated option_id here would hit product_attribute_values' unique
@@ -191,7 +192,29 @@ async function setProductAttributeOptions(connection, productId, optionIds) {
 // price/stock must already be validated by the caller before the transaction opens. Returns the
 // option-combo -> freshly-inserted-id map setProductKeySpecs needs to resolve a variant-scoped spec,
 // since every variant just got a brand new id here regardless of what it was before this save.
+async function getExistingVariantIdByOptionKey(connection, productId) {
+  const [variantRows] = await connection.query('SELECT id FROM product_variants WHERE product_id = ?', [productId]);
+  const map = new Map();
+  if (variantRows.length === 0) return map;
+  const [optionRows] = await connection.query(
+    `SELECT variant_id, option_id FROM product_variant_options WHERE variant_id IN (${variantRows.map(() => '?').join(',')})`,
+    variantRows.map((v) => v.id)
+  );
+  const optionsByVariant = new Map();
+  for (const row of optionRows) {
+    if (!optionsByVariant.has(row.variant_id)) optionsByVariant.set(row.variant_id, []);
+    optionsByVariant.get(row.variant_id).push(row.option_id);
+  }
+  for (const [vId, optionIds] of optionsByVariant.entries()) {
+    map.set(optionKey(optionIds), vId);
+  }
+  return map;
+}
+
 async function setProductVariants(connection, businessId, productId, variants) {
+  if (variants === undefined) {
+    return getExistingVariantIdByOptionKey(connection, productId);
+  }
   await connection.query('DELETE FROM product_variants WHERE product_id = ?', [productId]);
   const variantIdByOptionKey = new Map();
   if (!variants?.length) return variantIdByOptionKey;
@@ -263,6 +286,7 @@ function validateSalePrice(is_on_sale, discount_price, price) {
 }
 
 async function setProductImages(connection, productId, images) {
+  if (images === undefined) return;
   await connection.query('DELETE FROM product_images WHERE product_id = ?', [productId]);
   if (!images?.length) return;
   const values = images.map((image, index) => [productId, image, index]);
@@ -273,6 +297,7 @@ async function setProductImages(connection, productId, images) {
 // admin actually typed a value for get a row; a blank/missing entry falls back to the default
 // first-tag specification value in attachAttributeOptionIds above.
 async function setProductSpecOverrides(connection, productId, specOverrides) {
+  if (specOverrides === undefined) return;
   await connection.query('DELETE FROM product_spec_overrides WHERE product_id = ?', [productId]);
   const entries = Object.entries(specOverrides || {}).filter(([, value]) => value != null && String(value).trim() !== '');
   if (entries.length === 0) return;
@@ -294,6 +319,7 @@ async function setProductSpecOverrides(connection, productId, specOverrides) {
 // removed it in the same edit), the row is dropped rather than silently widening it to "All
 // Variants" — that would publish it somewhere the admin never chose.
 async function setProductKeySpecs(connection, productId, keySpecs, variantIdByOptionKey) {
+  if (keySpecs === undefined) return;
   await connection.query('DELETE FROM product_specs WHERE product_id = ?', [productId]);
   const entries = (keySpecs || [])
     .map((s) => ({
@@ -373,7 +399,8 @@ const SORT_CLAUSES = {
 };
 
 export async function getProducts(req, res) {
-  const { category, search, featured, new_arrival, on_sale, low_stock, brand, options, sort } = req.query;
+  const isAdmin = Boolean(req.baseUrl?.includes('/admin') || req.originalUrl?.includes('/admin/') || req.user?.is_admin);
+  const { category, search, featured, new_arrival, on_sale, low_stock, brand, options, sort, is_active, status } = req.query;
   const { page, limit, offset } = parsePagination(req, 24);
   // The rating join only runs when actually sorting by rating — every other listing request
   // (the overwhelming majority) skips the extra join and aggregate entirely.
@@ -385,6 +412,15 @@ export async function getProducts(req, res) {
   }`;
   const params = [req.business.id];
   const where = ['p.business_id = ?'];
+
+  if (!isAdmin && is_active === undefined && status === undefined) {
+    where.push('p.is_active = 1');
+  } else if (is_active === '0' || is_active === 'false' || status === 'hidden') {
+    where.push('p.is_active = 0');
+  } else if (is_active === '1' || is_active === 'true' || status === 'active') {
+    where.push('p.is_active = 1');
+  }
+
   if (category) {
     const categoryIds = await resolveCategoryAndDescendantIds(req.business.id, category);
     if (categoryIds.length === 0) return res.json(buildPaginatedResponse('products', [], 0, page, limit));
@@ -457,12 +493,11 @@ export async function getProducts(req, res) {
   res.json(buildPaginatedResponse('products', await attachExtras(rows), total, page, limit));
 }
 
-// Brand isn't a managed list anywhere — it's just a text field on each product — so admin
-// autocomplete works off whatever values are already in use, deduped case-insensitively so
-// "Dell" and "dell" (typed on different days) suggest as one entry instead of two.
 export async function getProductBrands(req, res) {
+  const isAdmin = Boolean(req.baseUrl?.includes('/admin') || req.originalUrl?.includes('/admin/') || req.user?.is_admin);
+  const whereActive = isAdmin ? '' : ' AND is_active = 1';
   const [rows] = await pool.query(
-    "SELECT DISTINCT brand FROM products WHERE business_id = ? AND brand IS NOT NULL AND brand != ''",
+    `SELECT DISTINCT brand FROM products WHERE business_id = ? AND brand IS NOT NULL AND brand != ''${whereActive}`,
     [req.business.id]
   );
   const byKey = new Map();
@@ -482,7 +517,7 @@ export async function getProductSuggestions(req, res) {
      FROM products p 
      LEFT JOIN categories c ON p.category_id = c.id
      LEFT JOIN categories parent_c ON c.parent_id = parent_c.id
-     WHERE p.business_id = ? AND (p.name LIKE ? OR p.brand LIKE ? OR p.description LIKE ? OR c.name LIKE ? OR parent_c.name LIKE ?)
+     WHERE p.business_id = ? AND p.is_active = 1 AND (p.name LIKE ? OR p.brand LIKE ? OR p.description LIKE ? OR c.name LIKE ? OR parent_c.name LIKE ?)
      ORDER BY (p.name LIKE ?) DESC, (p.name LIKE ?) DESC, (c.name LIKE ? OR parent_c.name LIKE ?) DESC, (p.brand LIKE ?) DESC, (p.description LIKE ?) DESC, p.name ASC
      LIMIT 8`,
     [
@@ -495,8 +530,10 @@ export async function getProductSuggestions(req, res) {
 }
 
 export async function getProductById(req, res) {
+  const isAdmin = Boolean(req.baseUrl?.includes('/admin') || req.originalUrl?.includes('/admin/') || req.user?.is_admin);
+  const whereActive = isAdmin ? '' : ' AND p.is_active = 1';
   const [rows] = await pool.query(
-    'SELECT p.*, c.name AS category_name, c.slug AS category_slug FROM products p LEFT JOIN categories c ON p.category_id = c.id WHERE p.business_id = ? AND p.id = ?',
+    `SELECT p.*, c.name AS category_name, c.slug AS category_slug FROM products p LEFT JOIN categories c ON p.category_id = c.id WHERE p.business_id = ? AND p.id = ?${whereActive}`,
     [req.business.id, req.params.id]
   );
   if (rows.length === 0) return res.status(404).json({ error: 'Product not found' });
@@ -505,8 +542,10 @@ export async function getProductById(req, res) {
 }
 
 export async function getProductBySlug(req, res) {
+  const isAdmin = Boolean(req.baseUrl?.includes('/admin') || req.originalUrl?.includes('/admin/') || req.user?.is_admin);
+  const whereActive = isAdmin ? '' : ' AND p.is_active = 1';
   const [rows] = await pool.query(
-    'SELECT p.*, c.name AS category_name, c.slug AS category_slug FROM products p LEFT JOIN categories c ON p.category_id = c.id WHERE p.business_id = ? AND p.slug = ?',
+    `SELECT p.*, c.name AS category_name, c.slug AS category_slug FROM products p LEFT JOIN categories c ON p.category_id = c.id WHERE p.business_id = ? AND p.slug = ?${whereActive}`,
     [req.business.id, req.params.slug]
   );
   if (rows.length === 0) return res.status(404).json({ error: 'Product not found' });
@@ -553,7 +592,7 @@ export async function createProduct(req, res) {
   const {
     category_id, name, slug, brand, description, price, discount_price, stock, image, video, dataset, model_3d,
     content_image, content_image_caption, content_video_url, content_video_title, content_video_caption,
-    is_featured, is_new_arrival, is_on_sale, attribute_option_ids, images, variants, spec_overrides, key_specs,
+    is_featured, is_new_arrival, is_on_sale, is_active, attribute_option_ids, images, variants, spec_overrides, key_specs,
   } = req.body;
   if (!name || !slug || price == null) {
     return res.status(400).json({ error: 'name, slug and price are required' });
@@ -593,14 +632,15 @@ export async function createProduct(req, res) {
   try {
     await connection.beginTransaction();
     const [result] = await connection.query(
-      `INSERT INTO products (business_id, category_id, name, slug, brand, description, price, discount_price, stock, image, video, dataset, model_3d, content_image, content_image_caption, content_video_url, content_video_title, content_video_caption, is_featured, is_new_arrival, is_on_sale)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO products (business_id, category_id, name, slug, brand, description, price, discount_price, stock, image, video, dataset, model_3d, content_image, content_image_caption, content_video_url, content_video_title, content_video_caption, is_featured, is_new_arrival, is_on_sale, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         req.business.id, category_id || null, name, slug, brand ?? null, description ?? null, effectivePrice,
         discount_price ?? null, effectiveStock ?? 0, image ?? null, video ?? null, dataset ?? null, model_3d ?? null,
         content_image ?? null, content_image_caption ?? null,
         normalizedVideoUrl, content_video_title ?? null, content_video_caption ?? null,
         Number(Boolean(is_featured)), Number(Boolean(is_new_arrival)), Number(Boolean(is_on_sale)),
+        Number(is_active !== undefined ? Boolean(is_active) : true),
       ]
     );
     await setProductAttributeOptions(connection, result.insertId, attribute_option_ids);
@@ -668,7 +708,7 @@ export async function updateProduct(req, res) {
   const {
     category_id, name, slug, brand, description, price, discount_price, stock, image, video, dataset, model_3d,
     content_image, content_image_caption, content_video_url, content_video_title, content_video_caption,
-    is_featured, is_new_arrival, is_on_sale, attribute_option_ids, images, variants, spec_overrides, key_specs,
+    is_featured, is_new_arrival, is_on_sale, is_active, attribute_option_ids, images, variants, spec_overrides, key_specs,
   } = req.body;
 
   if (!name || !slug || price == null) {
@@ -685,13 +725,14 @@ export async function updateProduct(req, res) {
   const effectiveStock = variants?.length ? variants.reduce((sum, v) => sum + Number(v.stock || 0), 0) : stock;
 
   const [existingRows] = await pool.query(
-    'SELECT price, stock, discount_price, is_on_sale FROM products WHERE id = ? AND business_id = ?',
+    'SELECT price, stock, discount_price, is_on_sale, is_active FROM products WHERE id = ? AND business_id = ?',
     [req.params.id, req.business.id]
   );
   if (existingRows.length === 0) return res.status(404).json({ error: 'Product not found' });
   const previousStock = existingRows[0].stock;
   const previousPrice = existingRows[0].price;
   const previousEffectivePrice = getEffectivePrice(existingRows[0]);
+  const currentIsActive = existingRows[0].is_active;
 
   const priceStockError = validatePriceAndStock(effectivePrice, effectiveStock);
   if (priceStockError) return res.status(400).json({ error: priceStockError });
@@ -711,6 +752,8 @@ export async function updateProduct(req, res) {
     if (catRows.length === 0) return res.status(400).json({ error: 'Invalid category' });
   }
 
+  const newIsActive = is_active !== undefined ? Number(Boolean(is_active)) : currentIsActive;
+
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
@@ -718,13 +761,14 @@ export async function updateProduct(req, res) {
       `UPDATE products SET category_id = ?, name = ?, slug = ?, brand = ?, description = ?, price = ?,
        discount_price = ?, stock = ?, image = ?, video = ?, dataset = ?, model_3d = ?, content_image = ?, content_image_caption = ?,
        content_video_url = ?, content_video_title = ?, content_video_caption = ?,
-       is_featured = ?, is_new_arrival = ?, is_on_sale = ? WHERE id = ? AND business_id = ?`,
+       is_featured = ?, is_new_arrival = ?, is_on_sale = ?, is_active = ? WHERE id = ? AND business_id = ?`,
       [
         category_id || null, name, slug, brand ?? null, description ?? null, effectivePrice,
         discount_price ?? null, effectiveStock ?? 0, image ?? null, video ?? null, dataset ?? null, model_3d ?? null,
         content_image ?? null, content_image_caption ?? null,
         normalizedVideoUrl, content_video_title ?? null, content_video_caption ?? null,
         Number(Boolean(is_featured)), Number(Boolean(is_new_arrival)), Number(Boolean(is_on_sale)),
+        newIsActive,
         req.params.id, req.business.id,
       ]
     );
@@ -737,11 +781,23 @@ export async function updateProduct(req, res) {
     const variantIdByOptionKey = await setProductVariants(connection, req.business.id, req.params.id, variants);
     await setProductSpecOverrides(connection, req.params.id, spec_overrides);
     await setProductKeySpecs(connection, req.params.id, key_specs, variantIdByOptionKey);
+    const newStock = Number(effectiveStock ?? 0);
+    if (previousStock <= 0 && newStock > 0) {
+      notifyBackInStock(req.business.id, req.params.id).catch((err) => {
+        logger.error({ err, businessId: req.business.id, productId: req.params.id }, 'notifyBackInStock failed');
+      });
+    }
+
+    const newEffectivePrice = getEffectivePrice({ price: effectivePrice, discount_price, is_on_sale });
+    if (newEffectivePrice < previousEffectivePrice) {
+      notifyPriceDrop(req.business.id, req.params.id, newEffectivePrice);
+    }
+
     await connection.commit();
     res.json({ message: 'Product updated' });
     logAudit({
       req, action: 'product.update', entityType: 'product', entityId: req.params.id,
-      details: { name, price: { from: previousPrice, to: effectivePrice }, stock: { from: previousStock, to: effectiveStock ?? 0 } },
+      details: { name, price: { from: previousPrice, to: effectivePrice }, stock: { from: previousStock, to: effectiveStock ?? 0 }, is_active: newIsActive },
     });
   } catch (err) {
     await connection.rollback();
@@ -750,20 +806,17 @@ export async function updateProduct(req, res) {
   } finally {
     connection.release();
   }
+}
 
-  const newStock = Number(effectiveStock ?? 0);
-  if (previousStock <= 0 && newStock > 0) {
-    // Best-effort wishlist notification — must not let a DB/mail hiccup here become an
-    // unhandled rejection, which (Node >=15) crashes the whole process, not just this request.
-    notifyBackInStock(req.business.id, req.params.id).catch((err) => {
-      logger.error({ err, businessId: req.business.id, productId: req.params.id }, 'notifyBackInStock failed');
-    });
-  }
-
-  const newEffectivePrice = getEffectivePrice({ price: effectivePrice, discount_price, is_on_sale });
-  if (newEffectivePrice < previousEffectivePrice) {
-    notifyPriceDrop(req.business.id, req.params.id, newEffectivePrice);
-  }
+export async function toggleProductActive(req, res) {
+  const [result] = await pool.query(
+    'UPDATE products SET is_active = IF(is_active = 1, 0, 1) WHERE id = ? AND business_id = ?',
+    [req.params.id, req.business.id]
+  );
+  if (result.affectedRows === 0) return res.status(404).json({ error: 'Product not found' });
+  const [[updated]] = await pool.query('SELECT id, name, is_active FROM products WHERE id = ?', [req.params.id]);
+  logAudit({ req, action: 'product.toggle_active', entityType: 'product', entityId: req.params.id, details: { name: updated.name, is_active: updated.is_active } });
+  res.json({ message: 'Product status updated', is_active: updated.is_active });
 }
 
 export async function deleteProduct(req, res) {

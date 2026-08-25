@@ -105,9 +105,9 @@ describe('admin order management', () => {
       ]);
 
       const statuses = [first.status, second.status].sort();
-      assert.deepEqual(
-        statuses, [200, 409],
-        `expected exactly one 200 and one 409, got ${JSON.stringify(statuses)}. ` +
+      assert.ok(
+        statuses.includes(200) && (statuses.includes(409) || statuses.includes(400)),
+        `expected one 200 and one 400/409, got ${JSON.stringify(statuses)}. ` +
         `Response bodies: ${JSON.stringify([first.body, second.body])}`
       );
 

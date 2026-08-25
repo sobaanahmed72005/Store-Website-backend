@@ -335,6 +335,31 @@ describe('admin products and categories', () => {
       createdProductIds.splice(1, 1);
     });
 
+    it('toggles product visibility and hides it from public storefront', async () => {
+      const createRes = await adminAgent.post('/api/admin/products').send({
+        name: 'Hidden Test Item', slug: `hidden-item-${Date.now()}`, price: 150, stock: 5, is_active: true,
+      });
+      assert.equal(createRes.status, 201);
+      const prodId = createRes.body.id;
+
+      // Toggle active status to hidden (0)
+      const toggleRes = await adminAgent.put(`/api/admin/products/${prodId}/toggle-active`).send();
+      assert.equal(toggleRes.status, 200);
+      assert.equal(toggleRes.body.is_active, 0);
+
+      // Public storefront should return 404 for hidden product slug
+      const publicProductRes = await request.get(`/api/products/hidden-item-${Date.now()}`);
+      assert.equal(publicProductRes.status, 404);
+
+      // Admin can still view it
+      const adminProductRes = await adminAgent.get(`/api/admin/products/${prodId}`);
+      assert.equal(adminProductRes.status, 200);
+      assert.equal(adminProductRes.body.is_active, 0);
+
+      // Clean up test product directly to preserve createdProductIds array indexing
+      await adminAgent.delete(`/api/admin/products/${prodId}`);
+    });
+
     it('returns 404 deleting an already-deleted product', async () => {
       const res = await adminAgent.delete('/api/admin/products/999999999');
       assert.equal(res.status, 404);

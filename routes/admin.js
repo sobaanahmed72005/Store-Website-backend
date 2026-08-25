@@ -21,6 +21,7 @@ import {
   createProduct,
   updateProduct,
   deleteProduct,
+  toggleProductActive,
   bulkSale,
 } from '../controllers/productsController.js';
 import {
@@ -94,6 +95,7 @@ router.get('/products/brands', getProductBrands);
 router.get('/products/:id', getProductById);
 router.post('/products', createProduct);
 router.put('/products/:id', updateProduct);
+router.put('/products/:id/toggle-active', toggleProductActive);
 router.delete('/products/:id', deleteProduct);
 
 router.get('/categories', getCategories);

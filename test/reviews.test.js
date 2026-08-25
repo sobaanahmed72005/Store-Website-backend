@@ -40,7 +40,7 @@ describe('reviews', () => {
     purchaserAgent = newAgent();
     await purchaserAgent.post('/api/auth/register').send({ name: 'Purchaser', email: uniqueEmail('purchaser'), password: PASSWORD });
     const order = await purchaserAgent.post('/api/orders').send({
-      shipping_address: 'Test Address Review', phone: '03001234567',
+      shipping_address: 'Test Address Review', shipping_city: 'Karachi', phone: '03001234567',
       items: [{ id: product.id, quantity: 1 }], payment_method: 'cod',
     });
     assert.equal(order.status, 201);
