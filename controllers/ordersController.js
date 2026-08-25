@@ -72,11 +72,8 @@ export async function createOrder(req, res) {
   if (!payment_method || !paymentMethods?.[payment_method]?.enabled) {
     return res.status(400).json({ error: 'Please select a valid payment method' });
   }
-  // Cash on Delivery is settled at the door, so there's nothing to verify up front — every
-  // other method is an unverifiable manual transfer, so a reference AND proof screenshot are
-  // both mandatory: the reference alone is just a typed-in claim, easy to fabricate or reuse.
-  if (payment_method !== 'cod' && (!payment_reference?.trim() || !payment_proof_image)) {
-    return res.status(400).json({ error: 'A transaction reference and payment screenshot are required for this payment method' });
+  if (payment_method !== 'cod' && !payment_proof_image) {
+    return res.status(400).json({ error: 'A payment screenshot is required for this payment method' });
   }
   if (payment_method !== 'cod') {
     // payment_proof_image must be a filename this app's own upload endpoint actually wrote to
