@@ -167,3 +167,35 @@ ${itemsXml.join('\n')}
 
   res.type('application/xml').send(body);
 }
+
+export async function getLlmsTxt(req, res) {
+  const origin = buildStoreUrl(req.business.slug);
+  const storeName = req.business.name || 'IT Solutions Trade & Service Pvt. Ltd.';
+
+  const lines = [
+    `# ${storeName}`,
+    '',
+    '> Official IT Hardware & Technology Store in Pakistan',
+    '',
+    `- Store Website: ${origin}`,
+    `- Product RSS Feed: ${origin}/products-feed.xml`,
+    `- Sitemap: ${origin}/sitemap.xml`,
+    '',
+    '## Store Overview',
+    'IT Solutions is an authorized supplier of genuine IT equipment, 4K CCTV security cameras, enterprise Wi-Fi 6 networking routers, solar inverters, and high-performance computing hardware & laptops in Pakistan. All products include official brand warranty and nationwide Cash on Delivery.',
+    '',
+    '## Key Categories & Brands',
+    '- Laptops & Computing: Apple MacBook, Dell, HP, Lenovo ThinkPad, ASUS ROG',
+    '- Security & Surveillance: Hikvision, EZVIZ, IMOU 4K CCTV cameras & NVRs',
+    '- Networking & Solar Energy: Wi-Fi 6 Routers, Enterprise Switches, Hybrid Solar Inverters',
+    '- Peripherals & Components: High refresh rate monitors, GPUs, RAM, NVMe SSDs',
+    '',
+    '## Official Store Location & Contact',
+    '- Address: Office # 19, 2nd Floor, Fazal Trade Center, Near Hafeez Center, Gulberg III, Lahore, Pakistan',
+    '- Phone: +92 300 4265499',
+    '- Email: itsolutions543@gmail.com',
+    '- Store Timings: Monday to Saturday, 10:00 AM - 8:00 PM PKT',
+  ];
+
+  res.type('text/plain').send(lines.join('\n'));
+}
