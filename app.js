@@ -26,7 +26,7 @@ import newsletterRouter from './routes/newsletter.js';
 import contactRouter from './routes/contact.js';
 import { resolveBusiness } from './middleware/tenant.js';
 import { requireCloudflare } from './middleware/cloudflare.js';
-import { getRobotsTxt, getSitemap } from './controllers/seoController.js';
+import { getRobotsTxt, getSitemap, getProductsFeedXml } from './controllers/seoController.js';
 import { FRONTEND_URL, NODE_ENV } from './config/env.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -151,6 +151,8 @@ app.use(requireCloudflare);
 // Crawlers fetch these at the storefront's own root, not under /api — resolved per-tenant by hostname.
 app.get('/robots.txt', resolveBusiness, getRobotsTxt);
 app.get('/sitemap.xml', resolveBusiness, getSitemap);
+app.get('/products-feed.xml', resolveBusiness, getProductsFeedXml);
+app.get('/api/seo/products-feed.xml', resolveBusiness, getProductsFeedXml);
 
 app.use('/api', resolveBusiness);
 

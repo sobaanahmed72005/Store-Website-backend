@@ -69,4 +69,41 @@ describe('seo', () => {
       }
     });
   });
+
+  describe('GET /products-feed.xml', () => {
+    it('returns a well-formed Google Shopping RSS 2.0 XML feed with PKR pricing', async () => {
+      const res = await request.get('/products-feed.xml');
+      assert.equal(res.status, 200);
+      assert.ok(res.headers['content-type'].includes('application/xml'));
+      assert.ok(res.text.includes('<rss version="2.0" xmlns:g="http://base.google.com/ns/1.0">'));
+      assert.ok(res.text.includes('<channel>'));
+      assert.ok(res.text.includes('</rss>'));
+    });
+
+    it('excludes hidden products (is_active = 0)', async () => {
+      const [[business]] = await pool.query("SELECT id FROM businesses WHERE slug = 'main'");
+      const activeSlug = `test-feed-active-${Date.now()}`;
+      const hiddenSlug = `test-feed-hidden-${Date.now()}`;
+
+      const [activeRes] = await pool.query(
+        "INSERT INTO products (business_id, name, slug, price, stock, is_active) VALUES (?, 'Active Feed Product', ?, 1500, 10, 1)",
+        [business.id, activeSlug]
+      );
+      const [hiddenRes] = await pool.query(
+        "INSERT INTO products (business_id, name, slug, price, stock, is_active) VALUES (?, 'Hidden Feed Product', ?, 1500, 10, 0)",
+        [business.id, hiddenSlug]
+      );
+
+      try {
+        const res = await request.get('/products-feed.xml');
+        assert.equal(res.status, 200);
+        assert.ok(res.text.includes(`/product/${activeSlug}`));
+        assert.ok(!res.text.includes(`/product/${hiddenSlug}`));
+        assert.ok(res.text.includes('1500.00 PKR'));
+      } finally {
+        await pool.query('DELETE FROM products WHERE id IN (?, ?)', [activeRes.insertId, hiddenRes.insertId]);
+      }
+    });
+  });
 });
+
