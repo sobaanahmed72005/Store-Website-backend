@@ -980,26 +980,45 @@ export async function bulkSale(req, res) {
   }
 }
 
-async function getBulkPriceScope(businessId, { scope, categoryId, brandName }) {
+async function getBulkPriceScope(businessId, { scope, categoryIds, categoryId, brandNames, brandName, excludedProductIds, targetProductIds }) {
   let where = 'p.business_id = ?';
   let params = [businessId];
 
   if (scope === 'category') {
-    if (!categoryId) throw new Error('categoryId is required for category scope');
+    const rawIds = (categoryIds && categoryIds.length) ? categoryIds : (categoryId ? [categoryId] : []);
+    const ids = rawIds.map(Number).filter(Boolean);
+    if (!ids.length) throw new Error('At least one category is required for category scope');
     const [catRows] = await pool.query(
-      'SELECT id FROM categories WHERE business_id = ? AND (id = ? OR parent_id = ?)',
-      [businessId, categoryId, categoryId]
+      `SELECT id FROM categories WHERE business_id = ? AND (id IN (${ids.map(() => '?').join(',')}) OR parent_id IN (${ids.map(() => '?').join(',')}))`,
+      [businessId, ...ids, ...ids]
     );
     const catIds = catRows.map((r) => r.id);
     if (catIds.length === 0) return { where: '1 = 0', params: [] };
     where += ` AND p.category_id IN (${catIds.map(() => '?').join(',')})`;
     params.push(...catIds);
   } else if (scope === 'brand') {
-    if (!brandName) throw new Error('brandName is required for brand scope');
-    where += ' AND LOWER(p.brand) = LOWER(?)';
-    params.push(brandName);
+    const brands = (brandNames && brandNames.length ? brandNames : (brandName ? [brandName] : [])).filter(Boolean);
+    if (!brands.length) throw new Error('At least one brand is required for brand scope');
+    where += ` AND LOWER(p.brand) IN (${brands.map(() => 'LOWER(?)').join(',')})`;
+    params.push(...brands);
   } else if (scope !== 'all') {
     throw new Error('Invalid scope. Must be all, category, or brand');
+  }
+
+  if (Array.isArray(targetProductIds) && targetProductIds.length > 0) {
+    const validTargetIds = targetProductIds.map(Number).filter(Boolean);
+    if (validTargetIds.length > 0) {
+      where += ` AND p.id IN (${validTargetIds.map(() => '?').join(',')})`;
+      params.push(...validTargetIds);
+    }
+  }
+
+  if (Array.isArray(excludedProductIds) && excludedProductIds.length > 0) {
+    const validExcludedIds = excludedProductIds.map(Number).filter(Boolean);
+    if (validExcludedIds.length > 0) {
+      where += ` AND p.id NOT IN (${validExcludedIds.map(() => '?').join(',')})`;
+      params.push(...validExcludedIds);
+    }
   }
 
   return { where, params };
@@ -1022,13 +1041,13 @@ function calculateNewPrice(currentPrice, mode, adjustmentType, value) {
 }
 
 export async function bulkPriceUpdatePreview(req, res) {
-  const { scope, categoryId, brandName, targetField = 'price', mode = 'increase', adjustmentType = 'percentage', value } = req.body;
+  const { scope, categoryIds, categoryId, brandNames, brandName, excludedProductIds, targetProductIds, targetField = 'price', mode = 'increase', adjustmentType = 'percentage', value } = req.body;
   if (!mode || !adjustmentType || value == null || Number(value) <= 0) {
     return res.status(400).json({ error: 'Valid mode, adjustmentType, and value (greater than 0) are required' });
   }
 
   try {
-    const { where, params } = await getBulkPriceScope(req.business.id, { scope, categoryId, brandName });
+    const { where, params } = await getBulkPriceScope(req.business.id, { scope, categoryIds, categoryId, brandNames, brandName, excludedProductIds, targetProductIds });
     const [products] = await pool.query(
       `SELECT p.id, p.name, p.brand, p.price, p.discount_price, c.name AS category_name
        FROM products p
@@ -1070,7 +1089,7 @@ export async function bulkPriceUpdatePreview(req, res) {
 }
 
 export async function bulkPriceUpdate(req, res) {
-  const { scope, categoryId, brandName, targetField = 'price', mode = 'increase', adjustmentType = 'percentage', value } = req.body;
+  const { scope, categoryIds, categoryId, brandNames, brandName, excludedProductIds, targetProductIds, targetField = 'price', mode = 'increase', adjustmentType = 'percentage', value } = req.body;
   if (!mode || !adjustmentType || value == null || Number(value) <= 0) {
     return res.status(400).json({ error: 'Valid mode, adjustmentType, and value (greater than 0) are required' });
   }
@@ -1078,7 +1097,7 @@ export async function bulkPriceUpdate(req, res) {
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
-    const { where, params } = await getBulkPriceScope(req.business.id, { scope, categoryId, brandName });
+    const { where, params } = await getBulkPriceScope(req.business.id, { scope, categoryIds, categoryId, brandNames, brandName, excludedProductIds, targetProductIds });
 
     const [products] = await connection.query(
       `SELECT id, price, discount_price FROM products p WHERE ${where} FOR UPDATE`,
@@ -1141,7 +1160,7 @@ export async function bulkPriceUpdate(req, res) {
       userId: req.user.id,
       action: 'BULK_PRICE_UPDATE',
       targetType: 'products',
-      details: { scope, categoryId, brandName, targetField, mode, adjustmentType, value, updatedCount },
+      details: { scope, categoryIds, brandNames, excludedProductIds, targetProductIds, targetField, mode, adjustmentType, value, updatedCount },
     });
 
     await connection.commit();
