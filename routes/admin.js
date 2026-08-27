@@ -23,6 +23,8 @@ import {
   deleteProduct,
   toggleProductActive,
   bulkSale,
+  bulkPriceUpdatePreview,
+  bulkPriceUpdate,
 } from '../controllers/productsController.js';
 import {
   getCategories,
@@ -91,6 +93,8 @@ router.get('/reports/sale-split', getSaleSplit);
 
 router.get('/products', getProducts);
 router.post('/products/bulk-sale', bulkSale);
+router.post('/products/bulk-price-update/preview', bulkPriceUpdatePreview);
+router.post('/products/bulk-price-update', bulkPriceUpdate);
 router.get('/products/brands', getProductBrands);
 router.get('/products/:id', getProductById);
 router.post('/products', createProduct);

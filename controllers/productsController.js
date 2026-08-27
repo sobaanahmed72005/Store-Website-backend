@@ -979,3 +979,177 @@ export async function bulkSale(req, res) {
     connection.release();
   }
 }
+
+async function getBulkPriceScope(businessId, { scope, categoryId, brandName }) {
+  let where = 'p.business_id = ?';
+  let params = [businessId];
+
+  if (scope === 'category') {
+    if (!categoryId) throw new Error('categoryId is required for category scope');
+    const [catRows] = await pool.query(
+      'SELECT id FROM categories WHERE business_id = ? AND (id = ? OR parent_id = ?)',
+      [businessId, categoryId, categoryId]
+    );
+    const catIds = catRows.map((r) => r.id);
+    if (catIds.length === 0) return { where: '1 = 0', params: [] };
+    where += ` AND p.category_id IN (${catIds.map(() => '?').join(',')})`;
+    params.push(...catIds);
+  } else if (scope === 'brand') {
+    if (!brandName) throw new Error('brandName is required for brand scope');
+    where += ' AND LOWER(p.brand) = LOWER(?)';
+    params.push(brandName);
+  } else if (scope !== 'all') {
+    throw new Error('Invalid scope. Must be all, category, or brand');
+  }
+
+  return { where, params };
+}
+
+function calculateNewPrice(currentPrice, mode, adjustmentType, value) {
+  if (currentPrice == null || currentPrice === '') return null;
+  const num = Number(currentPrice);
+  if (!Number.isFinite(num) || num < 0) return null;
+  const val = Number(value);
+
+  let newPrice = num;
+  if (adjustmentType === 'percentage') {
+    const factor = val / 100;
+    newPrice = mode === 'increase' ? num * (1 + factor) : num * (1 - factor);
+  } else if (adjustmentType === 'amount') {
+    newPrice = mode === 'increase' ? num + val : num - val;
+  }
+  return Math.max(0, Math.round(newPrice * 100) / 100);
+}
+
+export async function bulkPriceUpdatePreview(req, res) {
+  const { scope, categoryId, brandName, targetField = 'price', mode = 'increase', adjustmentType = 'percentage', value } = req.body;
+  if (!mode || !adjustmentType || value == null || Number(value) <= 0) {
+    return res.status(400).json({ error: 'Valid mode, adjustmentType, and value (greater than 0) are required' });
+  }
+
+  try {
+    const { where, params } = await getBulkPriceScope(req.business.id, { scope, categoryId, brandName });
+    const [products] = await pool.query(
+      `SELECT p.id, p.name, p.brand, p.price, p.discount_price, c.name AS category_name
+       FROM products p
+       LEFT JOIN categories c ON c.id = p.category_id
+       WHERE ${where}
+       ORDER BY p.name ASC`,
+      params
+    );
+
+    const preview = products.map((p) => {
+      const currentPrice = Number(p.price);
+      const currentDiscountPrice = p.discount_price != null ? Number(p.discount_price) : null;
+      let newPrice = currentPrice;
+      let newDiscountPrice = currentDiscountPrice;
+
+      if (targetField === 'price' || targetField === 'both') {
+        newPrice = calculateNewPrice(currentPrice, mode, adjustmentType, value);
+      }
+      if ((targetField === 'discount_price' || targetField === 'both') && currentDiscountPrice != null) {
+        newDiscountPrice = calculateNewPrice(currentDiscountPrice, mode, adjustmentType, value);
+      }
+
+      return {
+        id: p.id,
+        name: p.name,
+        brand: p.brand,
+        category_name: p.category_name || 'Uncategorized',
+        current_price: currentPrice,
+        new_price: newPrice,
+        current_discount_price: currentDiscountPrice,
+        new_discount_price: newDiscountPrice,
+      };
+    });
+
+    res.json({ totalMatched: preview.length, preview });
+  } catch (err) {
+    res.status(400).json({ error: err.message || 'Failed to generate preview' });
+  }
+}
+
+export async function bulkPriceUpdate(req, res) {
+  const { scope, categoryId, brandName, targetField = 'price', mode = 'increase', adjustmentType = 'percentage', value } = req.body;
+  if (!mode || !adjustmentType || value == null || Number(value) <= 0) {
+    return res.status(400).json({ error: 'Valid mode, adjustmentType, and value (greater than 0) are required' });
+  }
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const { where, params } = await getBulkPriceScope(req.business.id, { scope, categoryId, brandName });
+
+    const [products] = await connection.query(
+      `SELECT id, price, discount_price FROM products p WHERE ${where} FOR UPDATE`,
+      params
+    );
+
+    if (products.length === 0) {
+      await connection.commit();
+      return res.json({ message: 'No products matched the filter', updated: 0 });
+    }
+
+    const productIds = products.map((p) => p.id);
+    const [variantRows] = await connection.query(
+      `SELECT id, product_id, price, discount_price FROM product_variants WHERE product_id IN (${productIds.map(() => '?').join(',')}) FOR UPDATE`,
+      productIds
+    );
+
+    let updatedCount = 0;
+    for (const p of products) {
+      const currentPrice = Number(p.price);
+      const currentDiscountPrice = p.discount_price != null ? Number(p.discount_price) : null;
+      let newPrice = currentPrice;
+      let newDiscountPrice = currentDiscountPrice;
+
+      if (targetField === 'price' || targetField === 'both') {
+        newPrice = calculateNewPrice(currentPrice, mode, adjustmentType, value);
+      }
+      if ((targetField === 'discount_price' || targetField === 'both') && currentDiscountPrice != null) {
+        newDiscountPrice = calculateNewPrice(currentDiscountPrice, mode, adjustmentType, value);
+      }
+
+      await connection.query(
+        'UPDATE products SET price = ?, discount_price = ?, updated_at = NOW() WHERE id = ?',
+        [newPrice, newDiscountPrice, p.id]
+      );
+      updatedCount++;
+    }
+
+    for (const v of variantRows) {
+      const vCurrentPrice = Number(v.price);
+      const vCurrentDiscountPrice = v.discount_price != null ? Number(v.discount_price) : null;
+      let vNewPrice = vCurrentPrice;
+      let vNewDiscountPrice = vCurrentDiscountPrice;
+
+      if (targetField === 'price' || targetField === 'both') {
+        vNewPrice = calculateNewPrice(vCurrentPrice, mode, adjustmentType, value);
+      }
+      if ((targetField === 'discount_price' || targetField === 'both') && vCurrentDiscountPrice != null) {
+        vNewDiscountPrice = calculateNewPrice(vCurrentDiscountPrice, mode, adjustmentType, value);
+      }
+
+      await connection.query(
+        'UPDATE product_variants SET price = ?, discount_price = ? WHERE id = ?',
+        [vNewPrice, vNewDiscountPrice, v.id]
+      );
+    }
+
+    await logAudit(connection, {
+      businessId: req.business.id,
+      userId: req.user.id,
+      action: 'BULK_PRICE_UPDATE',
+      targetType: 'products',
+      details: { scope, categoryId, brandName, targetField, mode, adjustmentType, value, updatedCount },
+    });
+
+    await connection.commit();
+    res.json({ message: 'Bulk price update completed successfully', updated: updatedCount });
+  } catch (err) {
+    await connection.rollback();
+    res.status(400).json({ error: err.message || 'Bulk price update failed' });
+  } finally {
+    connection.release();
+  }
+}
