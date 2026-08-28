@@ -1,11 +1,11 @@
 import pool from '../config/db.js';
 import { trackLeopardsPackets, mapLeopardsStatus } from '../controllers/courierController.js';
-import { applySyncedOrderStatus, COURIER_BOOKING_CLAIM } from '../controllers/ordersController.js';
+import { applySyncedOrderStatus, resetCancelledBooking, COURIER_BOOKING_CLAIM } from '../controllers/ordersController.js';
 import { logger } from './logger.js';
 
 const log = logger.child({ component: 'leopardsSync' });
 
-const TRACKABLE_STATUSES = ['shipped', 'out_for_delivery'];
+const TRACKABLE_STATUSES = ['packed', 'shipped', 'out_for_delivery'];
 const CHUNK_SIZE = 50;
 
 // Runs on an interval from server.js. Pulls live status from Leopards for
@@ -53,6 +53,15 @@ async function syncBusiness(businessId) {
 
       const rawStatus = packet.booked_packet_status || packet.status || '';
       const mapped = mapLeopardsStatus(rawStatus);
+
+      // If Leopards reports that the courier booking was cancelled (e.g. "Booking Cancelled", "Cancelled by Merchant", "Void"):
+      // Reset tracking info and set status back to 'packed' so admin gets option to re-book with Leopards again.
+      if (mapped === 'cancelled' || /cancel/i.test(rawStatus)) {
+        await resetCancelledBooking(businessId, order.id);
+        log.info({ orderId: order.id, rawStatus }, 'Leopards courier booking was cancelled — tracking cleared & order reset to packed for re-booking');
+        continue;
+      }
+
       if (!mapped || mapped === order.status) continue;
 
       const applied = await applySyncedOrderStatus(businessId, order.id, order.status, mapped);

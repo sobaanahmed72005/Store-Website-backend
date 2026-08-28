@@ -873,6 +873,14 @@ function hideBookingClaim(order) {
   return order;
 }
 
+export async function resetCancelledBooking(businessId, orderId) {
+  await pool.query(
+    `UPDATE orders SET courier_name = NULL, tracking_number = NULL, status = 'packed' WHERE id = ? AND business_id = ?`,
+    [orderId, businessId]
+  );
+}
+
+
 export async function bookOrderCourier(req, res) {
   const [rows] = await pool.query('SELECT * FROM orders WHERE id = ? AND business_id = ?', [req.params.id, req.business.id]);
   if (rows.length === 0) return res.status(404).json({ error: 'Order not found' });
