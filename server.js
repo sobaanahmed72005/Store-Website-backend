@@ -45,7 +45,7 @@ const timeouts = [
 ];
 const intervals = [
   setInterval(runSendReviewReminders, 60 * 60 * 1000),
-  setInterval(runSyncLeopardsTracking, 30 * 60 * 1000),
+  setInterval(runSyncLeopardsTracking, 15 * 60 * 1000),
   setInterval(runPruneOldSessions, 24 * 60 * 60 * 1000),
 ];
 
