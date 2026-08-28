@@ -18,6 +18,7 @@ const DEFAULTS = {
   default_weight_grams: 1000,
   origin_city: 'self',
   shipper_id: '',
+  shippers: [],
 };
 
 const LEOPARDS_BASE_URL = {
@@ -35,18 +36,30 @@ export async function adminGet(req, res) {
   const decryptedPassword = decryptSecret(settings.api_password);
   delete settings.api_key;
   delete settings.api_password;
+
+  let shippers = [];
+  if (settings.shippers) {
+    try {
+      shippers = JSON.parse(settings.shippers);
+    } catch {}
+  }
+  if ((!shippers || shippers.length === 0) && settings.shipper_id) {
+    shippers = [{ id: settings.shipper_id, name: `Default Shipper (${settings.shipper_id})` }];
+  }
+
   res.json({
     ...settings,
     enabled: Boolean(settings.enabled),
     sandbox: Boolean(settings.sandbox),
     shipper_id: settings.shipper_id ?? '',
+    shippers: Array.isArray(shippers) ? shippers : [],
     has_api_key: Boolean(decryptedKey),
     has_api_password: Boolean(decryptedPassword),
   });
 }
 
 export async function adminUpdate(req, res) {
-  const { provider, enabled, api_key, api_password, tracking_url_template, sandbox, default_weight_grams, origin_city, shipper_id } = req.body;
+  const { provider, enabled, api_key, api_password, tracking_url_template, sandbox, default_weight_grams, origin_city, shipper_id, shippers } = req.body;
   if (!tracking_url_template?.includes('{tracking_number}')) {
     return res.status(400).json({ error: 'Tracking URL template must include {tracking_number}' });
   }
@@ -56,16 +69,20 @@ export async function adminUpdate(req, res) {
   const keyToSave = api_key || existing.api_key || null;
   const passwordToSave = api_password || existing.api_password || null;
 
+  const shippersList = Array.isArray(shippers) ? shippers.filter((s) => s && s.id) : [];
+  const primaryShipperId = shipper_id || shippersList[0]?.id || null;
+  const shippersJson = shippersList.length > 0 ? JSON.stringify(shippersList) : null;
+
   await pool.query(
-    `INSERT INTO courier_settings (business_id, provider, enabled, api_key, api_password, tracking_url_template, sandbox, default_weight_grams, origin_city, shipper_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO courier_settings (business_id, provider, enabled, api_key, api_password, tracking_url_template, sandbox, default_weight_grams, origin_city, shipper_id, shippers)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE provider = VALUES(provider), enabled = VALUES(enabled), api_key = VALUES(api_key),
        api_password = VALUES(api_password), tracking_url_template = VALUES(tracking_url_template),
        sandbox = VALUES(sandbox), default_weight_grams = VALUES(default_weight_grams),
-       origin_city = VALUES(origin_city), shipper_id = VALUES(shipper_id)`,
+       origin_city = VALUES(origin_city), shipper_id = VALUES(shipper_id), shippers = VALUES(shippers)`,
     [
       req.business.id, provider || 'Leopards Courier', Number(Boolean(enabled)), encryptSecret(keyToSave), encryptSecret(passwordToSave), tracking_url_template,
-      Number(Boolean(sandbox)), Number(default_weight_grams) || 1000, origin_city || 'self', shipper_id || null,
+      Number(Boolean(sandbox)), Number(default_weight_grams) || 1000, origin_city || 'self', primaryShipperId, shippersJson,
     ]
   );
   cityCache.delete(req.business.id);
@@ -79,10 +96,20 @@ export async function adminUpdate(req, res) {
 export async function getCourierSettings(businessId) {
   const [rows] = await pool.query('SELECT * FROM courier_settings WHERE business_id = ?', [businessId]);
   if (rows.length === 0) return { ...DEFAULTS, enabled: false };
+  let shippers = [];
+  if (rows[0].shippers) {
+    try {
+      shippers = JSON.parse(rows[0].shippers);
+    } catch {}
+  }
+  if ((!shippers || shippers.length === 0) && rows[0].shipper_id) {
+    shippers = [{ id: rows[0].shipper_id, name: `Default Shipper (${rows[0].shipper_id})` }];
+  }
   return {
     ...rows[0],
     enabled: Boolean(rows[0].enabled),
     sandbox: Boolean(rows[0].sandbox),
+    shippers: Array.isArray(shippers) ? shippers : [],
     api_key: decryptSecret(rows[0].api_key),
     api_password: decryptSecret(rows[0].api_password),
   };
@@ -173,7 +200,7 @@ export async function adminTestConnection(req, res) {
 
 // Books a real shipment (or a staging one, depending on courier_settings.sandbox).
 // Throws with a message suitable for direct display to an admin on failure.
-export async function bookLeopardsPacket(businessId, order) {
+export async function bookLeopardsPacket(businessId, order, customShipperId) {
   const settings = await getCourierSettings(businessId);
   if (!settings.enabled) throw new Error('Leopards Courier is not enabled in Admin → Courier.');
   if (!settings.api_key || !settings.api_password) throw new Error('Leopards API key/password are not set in Admin → Courier.');
@@ -210,7 +237,8 @@ export async function bookLeopardsPacket(businessId, order) {
     consignment_address: order.shipping_address || '',
     special_instructions: order.notes || 'N/A',
   };
-  if (settings.shipper_id) params.shipment_id = settings.shipper_id;
+  const selectedShipperId = customShipperId || settings.shipper_id;
+  if (selectedShipperId) params.shipment_id = selectedShipperId;
 
   const data = await leopardsRequest(settings, 'bookPacket', params);
   const looksFailed = data.status === 0 || data.status === false || data.status === '0';

@@ -882,6 +882,7 @@ export async function resetCancelledBooking(businessId, orderId) {
 
 
 export async function bookOrderCourier(req, res) {
+  const { shipper_id } = req.body || {};
   const [rows] = await pool.query('SELECT * FROM orders WHERE id = ? AND business_id = ?', [req.params.id, req.business.id]);
   if (rows.length === 0) return res.status(404).json({ error: 'Order not found' });
   const order = rows[0];
@@ -902,7 +903,7 @@ export async function bookOrderCourier(req, res) {
   }
 
   try {
-    const booked = await bookLeopardsPacket(req.business.id, order);
+    const booked = await bookLeopardsPacket(req.business.id, order, shipper_id);
     // Guarded on still holding our own claim, not just id+business_id — an admin could have
     // manually entered a real tracking number (PUT .../tracking) while this booking call was in
     // flight, and that must win, not get silently clobbered by our late-arriving success write.

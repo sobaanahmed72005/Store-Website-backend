@@ -379,6 +379,7 @@ CREATE TABLE IF NOT EXISTS courier_settings (
   default_weight_grams INT NOT NULL DEFAULT 1000,
   origin_city VARCHAR(100) NOT NULL DEFAULT 'self',
   shipper_id VARCHAR(50),
+  shippers TEXT NULL,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE
 );
