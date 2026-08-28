@@ -26,7 +26,14 @@ const LEOPARDS_BASE_URL = {
   staging: 'https://merchantapistaging.leopardscourier.com/api/',
 };
 
+async function ensureShippersColumn() {
+  try {
+    await pool.query(`ALTER TABLE courier_settings ADD COLUMN shippers TEXT NULL`);
+  } catch {}
+}
+
 export async function adminGet(req, res) {
+  await ensureShippersColumn();
   const [rows] = await pool.query('SELECT * FROM courier_settings WHERE business_id = ?', [req.business.id]);
   if (rows.length === 0) return res.json({ ...DEFAULTS, has_api_key: false, has_api_password: false, api_key: undefined, api_password: undefined });
   const settings = { ...rows[0] };
@@ -73,18 +80,32 @@ export async function adminUpdate(req, res) {
   const primaryShipperId = shipper_id || shippersList[0]?.id || null;
   const shippersJson = shippersList.length > 0 ? JSON.stringify(shippersList) : null;
 
-  await pool.query(
-    `INSERT INTO courier_settings (business_id, provider, enabled, api_key, api_password, tracking_url_template, sandbox, default_weight_grams, origin_city, shipper_id, shippers)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON DUPLICATE KEY UPDATE provider = VALUES(provider), enabled = VALUES(enabled), api_key = VALUES(api_key),
-       api_password = VALUES(api_password), tracking_url_template = VALUES(tracking_url_template),
-       sandbox = VALUES(sandbox), default_weight_grams = VALUES(default_weight_grams),
-       origin_city = VALUES(origin_city), shipper_id = VALUES(shipper_id), shippers = VALUES(shippers)`,
-    [
-      req.business.id, provider || 'Leopards Courier', Number(Boolean(enabled)), encryptSecret(keyToSave), encryptSecret(passwordToSave), tracking_url_template,
-      Number(Boolean(sandbox)), Number(default_weight_grams) || 1000, origin_city || 'self', primaryShipperId, shippersJson,
-    ]
-  );
+  const runUpsert = async () => {
+    await pool.query(
+      `INSERT INTO courier_settings (business_id, provider, enabled, api_key, api_password, tracking_url_template, sandbox, default_weight_grams, origin_city, shipper_id, shippers)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE provider = VALUES(provider), enabled = VALUES(enabled), api_key = VALUES(api_key),
+         api_password = VALUES(api_password), tracking_url_template = VALUES(tracking_url_template),
+         sandbox = VALUES(sandbox), default_weight_grams = VALUES(default_weight_grams),
+         origin_city = VALUES(origin_city), shipper_id = VALUES(shipper_id), shippers = VALUES(shippers)`,
+      [
+        req.business.id, provider || 'Leopards Courier', Number(Boolean(enabled)), encryptSecret(keyToSave), encryptSecret(passwordToSave), tracking_url_template,
+        Number(Boolean(sandbox)), Number(default_weight_grams) || 1000, origin_city || 'self', primaryShipperId, shippersJson,
+      ]
+    );
+  };
+
+  try {
+    await runUpsert();
+  } catch (err) {
+    if (err.code === 'ER_BAD_FIELD_ERROR' || /shippers/i.test(err.message)) {
+      await ensureShippersColumn();
+      await runUpsert();
+    } else {
+      throw err;
+    }
+  }
+
   cityCache.delete(req.business.id);
   res.json({ message: 'Saved' });
   logAudit({
@@ -94,6 +115,7 @@ export async function adminUpdate(req, res) {
 }
 
 export async function getCourierSettings(businessId) {
+  await ensureShippersColumn();
   const [rows] = await pool.query('SELECT * FROM courier_settings WHERE business_id = ?', [businessId]);
   if (rows.length === 0) return { ...DEFAULTS, enabled: false };
   let shippers = [];
