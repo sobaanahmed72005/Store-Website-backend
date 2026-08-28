@@ -26,9 +26,18 @@ const LEOPARDS_BASE_URL = {
   staging: 'https://merchantapistaging.leopardscourier.com/api/',
 };
 
+let shippersColumnChecked = false;
 async function ensureShippersColumn() {
+  if (shippersColumnChecked) return;
   try {
-    await pool.query(`ALTER TABLE courier_settings ADD COLUMN shippers TEXT NULL`);
+    const [columns] = await pool.query(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'courier_settings' AND COLUMN_NAME = 'shippers'`
+    );
+    if (columns.length === 0) {
+      await pool.query(`ALTER TABLE courier_settings ADD COLUMN shippers TEXT NULL`);
+    }
+    shippersColumnChecked = true;
   } catch {}
 }
 
@@ -77,7 +86,7 @@ export async function adminUpdate(req, res) {
   const passwordToSave = api_password || existing.api_password || null;
 
   const shippersList = Array.isArray(shippers) ? shippers.filter((s) => s && s.id) : [];
-  const primaryShipperId = shipper_id || shippersList[0]?.id || null;
+  const primaryShipperId = shipper_id || null;
   const shippersJson = shippersList.length > 0 ? JSON.stringify(shippersList) : null;
 
   const runUpsert = async () => {
@@ -236,12 +245,26 @@ export async function bookLeopardsPacket(businessId, order, customShipperId) {
     throw new Error(`Leopards doesn't recognize the shipping city "${destinationCity}". Check the spelling on this order or book manually.`);
   }
 
+  const selectedShipperId = customShipperId || settings.shipper_id;
+  const shippersList = Array.isArray(settings.shippers) ? settings.shippers : [];
+  const activeShipper = shippersList.find((s) => String(s.id) === String(selectedShipperId)) || null;
+
+  // Resolve origin city for this specific shipper/booking
+  const rawOriginCity = (activeShipper?.origin_city || activeShipper?.city || settings.origin_city || 'self').trim();
+  let originCityParam = rawOriginCity;
+  if (rawOriginCity && rawOriginCity.toLowerCase() !== 'self' && cities) {
+    const originCityMatch = findLeopardsCityMatch(cities, rawOriginCity);
+    if (originCityMatch) {
+      originCityParam = String(originCityMatch.city_id ?? originCityMatch.id ?? rawOriginCity);
+    }
+  }
+
   const params = {
     booked_packet_weight: String(settings.default_weight_grams || 1000),
     booked_packet_no_piece: '1',
     booked_packet_collect_amount: order.payment_method === 'cod' ? String(Math.round(Number(order.total_amount) || 0)) : '0',
     booked_packet_order_id: String(order.id),
-    origin_city: settings.origin_city || 'self',
+    origin_city: originCityParam,
     // Leopards' bookPacket expects a numeric city ID here, not the display name — the name-based
     // match above is only used to look up that ID (and to give a clearer error when it's not
     // found at all). Falls back to the raw name if the lookup itself failed (e.g. getAllCities
@@ -249,18 +272,18 @@ export async function bookLeopardsPacket(businessId, order, customShipperId) {
     destination_city: destinationCityMatch
       ? String(destinationCityMatch.city_id ?? destinationCityMatch.id ?? destinationCity)
       : destinationCity,
-    shipment_name_eng: 'self',
-    shipment_email: 'self',
-    shipment_phone: 'self',
-    shipment_address: 'self',
+    shipment_name_eng: activeShipper?.name || 'self',
+    shipment_email: activeShipper?.email || 'self',
+    shipment_phone: activeShipper?.phone || 'self',
+    shipment_address: activeShipper?.address || 'self',
     consignment_name_eng: order.shipping_name || order.customer_name || 'Customer',
     consignment_email: order.email || order.customer_email || '',
     consignment_phone: order.phone || '',
     consignment_address: order.shipping_address || '',
     special_instructions: order.notes || 'N/A',
   };
-  const selectedShipperId = customShipperId || settings.shipper_id;
   if (selectedShipperId) params.shipment_id = selectedShipperId;
+  if (activeShipper?.return_address) params.return_address = activeShipper.return_address;
 
   const data = await leopardsRequest(settings, 'bookPacket', params);
   const looksFailed = data.status === 0 || data.status === false || data.status === '0';
