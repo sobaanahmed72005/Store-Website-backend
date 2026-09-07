@@ -30,7 +30,12 @@ export function getSearchIndex(businessId, products) {
   // Extract a dictionary of known catalog words (titles, categories, brands)
   const dictionarySet = new Set();
   for (const p of products) {
-    if (p.name) p.name.split(/\s+/).forEach((w) => w.length > 2 && dictionarySet.add(w.toLowerCase()));
+    if (p.name) {
+      p.name
+        .replace(/[^\w\s]/g, ' ')
+        .split(/\s+/)
+        .forEach((w) => w.length >= 3 && dictionarySet.add(w.toLowerCase()));
+    }
     if (p.brand) dictionarySet.add(p.brand.toLowerCase());
     if (p.category_name) dictionarySet.add(p.category_name.toLowerCase());
   }
@@ -42,8 +47,8 @@ export function getSearchIndex(businessId, products) {
       { name: 'category_name', weight: 0.15 },
       { name: 'description', weight: 0.05 },
     ],
-    threshold: 0.38,
-    distance: 100,
+    threshold: 0.45,
+    distance: 1000,
     minMatchCharLength: 2,
     includeScore: true,
     ignoreLocation: true,
@@ -54,8 +59,9 @@ export function getSearchIndex(businessId, products) {
 
   // Fuse index for single-word dictionary spellcheck
   const dictFuse = new Fuse(Array.from(dictionarySet), {
-    threshold: 0.5,
+    threshold: 0.45,
     distance: 100,
+    ignoreLocation: true,
     minMatchCharLength: 2,
   });
 
@@ -80,9 +86,9 @@ export function performSmartSearch(businessId, products, rawQuery) {
 
   const { fuse, dictFuse } = getSearchIndex(businessId, products);
   const searchResults = fuse.search(query);
-  const matchedProducts = searchResults.map((res) => res.item);
+  let matchedProducts = searchResults.map((res) => res.item);
 
-  // Check if query had a typo and can be suggested as a corrected phrase
+  // Check if query had a typo and can be suggested or corrected
   const queryWords = query.toLowerCase().split(/\s+/);
   const correctedWords = queryWords.map((word) => {
     if (word.length <= 2) return word;
@@ -99,17 +105,13 @@ export function performSmartSearch(businessId, products, rawQuery) {
 
   if (suggestedPhrase !== query.toLowerCase()) {
     suggestedQuery = capitalizeWords(suggestedPhrase);
-    if (searchResults.length === 0) {
-      const fallbackResults = fuse.search(suggestedPhrase);
-      if (fallbackResults.length > 0) {
-        return {
-          results: fallbackResults.map((res) => res.item),
-          suggestedQuery,
-          isCorrected: true,
-          originalQuery: query,
-          total: fallbackResults.length,
-        };
-      }
+    const fallbackResults = fuse.search(suggestedPhrase);
+    const fallbackProducts = fallbackResults.map((res) => res.item);
+
+    // If raw query returned 0 results or fallback returns significantly better matches
+    if (matchedProducts.length === 0 || fallbackProducts.length > matchedProducts.length) {
+      matchedProducts = fallbackProducts;
+      isCorrected = true;
     }
   }
 
