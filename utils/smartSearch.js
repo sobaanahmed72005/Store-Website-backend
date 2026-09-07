@@ -108,8 +108,8 @@ export function performSmartSearch(businessId, products, rawQuery) {
     const fallbackResults = fuse.search(suggestedPhrase);
     const fallbackProducts = fallbackResults.map((res) => res.item);
 
-    // If raw query returned 0 results or fallback returns significantly better matches
-    if (matchedProducts.length === 0 || fallbackProducts.length > matchedProducts.length) {
+    // If query had typos, use the corrected search results if available
+    if (fallbackProducts.length > 0) {
       matchedProducts = fallbackProducts;
       isCorrected = true;
     }
