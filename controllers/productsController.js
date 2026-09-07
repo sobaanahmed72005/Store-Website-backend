@@ -8,6 +8,7 @@ import { logger } from '../utils/logger.js';
 import { parsePagination, buildPaginatedResponse } from '../utils/pagination.js';
 import { uploadsDir, GENERATED_FILENAME_PATTERN } from '../middleware/upload.js';
 import { isObjectStorageConfigured, getObjectBuffer } from '../utils/objectStorage.js';
+import { performSmartSearch, invalidateSearchCache } from '../utils/smartSearch.js';
 
 const DATASET_CONTENT_TYPE_BY_EXT = {
   pdf: 'application/pdf',
@@ -474,6 +475,28 @@ export async function getProducts(req, res) {
   }
   const whereSql = ' WHERE ' + where.join(' AND ');
 
+  if (search) {
+    // Perform smart fuzzy search across candidate active products
+    const [candidateRows] = await pool.query(
+      `SELECT p.*, c.name AS category_name, parent_c.name AS parent_category_name
+       FROM products p
+       LEFT JOIN categories c ON p.category_id = c.id
+       LEFT JOIN categories parent_c ON c.parent_id = parent_c.id
+       ${whereSql}`,
+      params
+    );
+
+    const smartResult = performSmartSearch(req.business.id, candidateRows, search);
+    const paginatedItems = smartResult.results.slice(offset, offset + limit);
+    const withExtras = await attachExtras(paginatedItems);
+
+    const response = buildPaginatedResponse('products', withExtras, smartResult.total, page, limit);
+    response.suggestedQuery = smartResult.suggestedQuery;
+    response.isCorrected = smartResult.isCorrected;
+    response.originalQuery = smartResult.originalQuery;
+    return res.json(response);
+  }
+
   const [[{ total }]] = await pool.query(
     `SELECT COUNT(*) AS total FROM products p LEFT JOIN categories c ON p.category_id = c.id LEFT JOIN categories parent_c ON c.parent_id = parent_c.id${whereSql}`,
     params
@@ -481,10 +504,7 @@ export async function getProducts(req, res) {
 
   let orderBy = SORT_CLAUSES[sort];
   let extraParams = [];
-  if (!orderBy && search) {
-    orderBy = `(p.name LIKE ?) DESC, (p.name LIKE ?) DESC, (c.name LIKE ? OR parent_c.name LIKE ?) DESC, (p.brand LIKE ?) DESC, (p.description LIKE ?) DESC, p.created_at DESC`;
-    extraParams = [`${search}%`, `%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`];
-  } else if (!orderBy) {
+  if (!orderBy) {
     orderBy = SORT_CLAUSES.newest;
   }
 
@@ -512,21 +532,28 @@ export async function getProductSuggestions(req, res) {
   const q = String(req.query.q || '').trim();
   if (!q) return res.json([]);
 
-  const [rows] = await pool.query(
-    `SELECT p.id, p.name, p.slug, p.image, p.price, p.discount_price, p.is_on_sale, c.name AS category_name
+  const [allActive] = await pool.query(
+    `SELECT p.id, p.name, p.slug, p.image, p.price, p.discount_price, p.is_on_sale, p.brand, p.description, c.name AS category_name
      FROM products p 
      LEFT JOIN categories c ON p.category_id = c.id
-     LEFT JOIN categories parent_c ON c.parent_id = parent_c.id
-     WHERE p.business_id = ? AND p.is_active = 1 AND (p.name LIKE ? OR p.brand LIKE ? OR p.description LIKE ? OR c.name LIKE ? OR parent_c.name LIKE ?)
-     ORDER BY (p.name LIKE ?) DESC, (p.name LIKE ?) DESC, (c.name LIKE ? OR parent_c.name LIKE ?) DESC, (p.brand LIKE ?) DESC, (p.description LIKE ?) DESC, p.name ASC
-     LIMIT 8`,
-    [
-      req.business.id,
-      `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`,
-      `${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`
-    ]
+     WHERE p.business_id = ? AND p.is_active = 1`,
+    [req.business.id]
   );
-  res.json(rows);
+
+  const smart = performSmartSearch(req.business.id, allActive, q);
+  const sliced = smart.results.slice(0, 8).map((p) => {
+    const { brand, description, ...clean } = p;
+    return clean;
+  });
+
+  const responseArray = Object.assign([...sliced], {
+    suggestions: sliced,
+    suggestedQuery: smart.suggestedQuery,
+    isCorrected: smart.isCorrected,
+    originalQuery: q,
+  });
+
+  res.json(responseArray);
 }
 
 export async function getProductById(req, res) {
