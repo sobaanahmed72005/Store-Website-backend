@@ -166,6 +166,26 @@ describe('seo', () => {
       }
     });
 
+    it('returns prerendered HTML for /contact page with ContactPage & LocalBusiness schema', async () => {
+      const res = await request.get('/prerender?path=/contact');
+      assert.equal(res.status, 200);
+      assert.ok(res.headers['content-type'].includes('text/html'));
+      assert.ok(res.text.includes('Contact IT Solutions Pakistan'));
+      assert.ok(res.text.includes('Office # 19, 2nd Floor, Fazal Trade Center'));
+      assert.ok(res.text.includes('ContactPage'));
+      assert.ok(res.text.includes('LocalBusiness'));
+      assert.ok(res.text.includes('+92 300 4265499'));
+    });
+
+    it('returns prerendered HTML for /about-us page with Organization schema', async () => {
+      const res = await request.get('/prerender?path=/about-us');
+      assert.equal(res.status, 200);
+      assert.ok(res.headers['content-type'].includes('text/html'));
+      assert.ok(res.text.includes('About IT Solutions Pakistan'));
+      assert.ok(res.text.includes('Organization'));
+      assert.ok(res.text.includes('Office # 19, 2nd Floor, Fazal Trade Center'));
+    });
+
     it('returns 404 HTML for non-existent product slug', async () => {
       const res = await request.get('/prerender?path=/product/non-existent-slug-xyz-12345');
       assert.equal(res.status, 404);
