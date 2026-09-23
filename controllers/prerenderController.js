@@ -57,8 +57,9 @@ const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/;
 export async function prerenderPage(req, res) {
   const rawPath = String(req.query.path || '/').trim();
   const path = rawPath.startsWith('/') ? rawPath : `/${rawPath}`;
+  const businessId = req.business?.id || 1;
   const origin = buildStoreUrl(req.business?.slug || 'main');
-  const cacheKey = `${req.business?.id || 1}:${path}`;
+  const cacheKey = `${businessId}:${path}`;
 
   const cached = getCachedPrerender(cacheKey);
   if (cached) {
@@ -69,23 +70,23 @@ export async function prerenderPage(req, res) {
     let html = '';
 
     if (path === '/' || path === '') {
-      html = await renderHome(req.business.id, origin);
+      html = await renderHome(businessId, origin);
     } else if (path === '/shop') {
-      html = await renderShop(req.business.id, origin);
+      html = await renderShop(businessId, origin);
     } else if (path.startsWith('/product/')) {
       const slug = path.replace('/product/', '').split('?')[0].split('#')[0];
       if (!SLUG_PATTERN.test(slug)) {
         return res.status(404).type('text/html; charset=utf-8').send(render404(origin, 'Product not found'));
       }
-      html = await renderProduct(req.business.id, slug, origin);
+      html = await renderProduct(businessId, slug, origin);
     } else if (path.startsWith('/category/')) {
       const slug = path.replace('/category/', '').split('?')[0].split('#')[0];
       if (!SLUG_PATTERN.test(slug)) {
         return res.status(404).type('text/html; charset=utf-8').send(render404(origin, 'Category not found'));
       }
-      html = await renderCategory(req.business.id, slug, origin);
+      html = await renderCategory(businessId, slug, origin);
     } else if (['/about-us', '/contact', '/return-exchange', '/privacy-policy'].includes(path)) {
-      html = await renderCmsPage(req.business.id, path, origin);
+      html = await renderCmsPage(businessId, path, origin);
     } else {
       return res.status(404).type('text/html; charset=utf-8').send(render404(origin, 'Page not found'));
     }
@@ -443,14 +444,31 @@ async function renderHome(businessId, origin) {
   const jsonLdOrg = {
     '@context': 'https://schema.org',
     '@type': 'LocalBusiness',
-    name: 'IT Solutions Pakistan',
+    name: 'IT Solutions Trade & Service Pvt. Ltd.',
     url: origin,
+    image: `${origin}/favicon.svg`,
+    logo: `${origin}/favicon.svg`,
     description: metaDesc,
-    priceRange: '$$',
+    telephone: '+92 300 4265499',
+    email: 'itsolutions543@gmail.com',
+    priceRange: 'PKR',
     address: {
       '@type': 'PostalAddress',
+      streetAddress: 'Office # 19, 2nd Floor, Fazal Trade Center, Near Hafeez Center, Gulberg III',
+      addressLocality: 'Lahore',
+      addressRegion: 'Punjab',
+      postalCode: '54660',
       addressCountry: 'PK',
     },
+    openingHoursSpecification: [
+      {
+        '@type': 'OpeningHoursSpecification',
+        dayOfWeek: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
+        opens: '10:00',
+        closes: '20:00',
+      },
+    ],
+    paymentAccepted: 'Cash on Delivery, Bank Transfer, Credit Card',
   };
 
   return `<!DOCTYPE html>
