@@ -52,6 +52,12 @@ function resolveImageUrl(image, origin) {
   return `${origin}/${image}`;
 }
 
+function getGoogleVerificationTag() {
+  const token = process.env.GOOGLE_SITE_VERIFICATION;
+  if (!token) return '';
+  return `<meta name="google-site-verification" content="${escapeHtml(token)}">`;
+}
+
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/;
 
 export async function prerenderPage(req, res) {
@@ -272,6 +278,7 @@ async function renderProduct(businessId, slug, origin) {
   <meta name="description" content="${metaDesc}">
   <meta name="robots" content="index, follow">
   <link rel="canonical" href="${escapeHtml(canonicalUrl)}">
+  ${getGoogleVerificationTag()}
   <meta property="og:type" content="product">
   <meta property="og:title" content="${pageTitle}">
   <meta property="og:description" content="${metaDesc}">
@@ -384,6 +391,7 @@ async function renderCategory(businessId, slug, origin) {
   <meta name="description" content="${metaDesc}">
   <meta name="robots" content="index, follow">
   <link rel="canonical" href="${escapeHtml(canonicalUrl)}">
+  ${getGoogleVerificationTag()}
   <meta property="og:type" content="website">
   <meta property="og:title" content="${pageTitle}">
   <meta property="og:description" content="${metaDesc}">
@@ -481,6 +489,7 @@ async function renderShop(businessId, origin) {
   <meta name="description" content="${metaDesc}">
   <meta name="robots" content="index, follow">
   <link rel="canonical" href="${escapeHtml(canonicalUrl)}">
+  ${getGoogleVerificationTag()}
   <meta property="og:type" content="website">
   <meta property="og:title" content="${pageTitle}">
   <meta property="og:description" content="${metaDesc}">
@@ -596,7 +605,7 @@ async function renderHome(businessId, origin) {
   <meta name="description" content="${metaDesc}">
   <meta name="robots" content="index, follow">
   <link rel="canonical" href="${escapeHtml(canonicalUrl)}">
-  ${process.env.GOOGLE_SITE_VERIFICATION ? `<meta name="google-site-verification" content="${escapeHtml(process.env.GOOGLE_SITE_VERIFICATION)}">` : ''}
+  ${getGoogleVerificationTag()}
   <meta property="og:type" content="website">
   <meta property="og:title" content="${pageTitle}">
   <meta property="og:description" content="${metaDesc}">
@@ -703,6 +712,7 @@ async function renderCmsPage(businessId, path, origin) {
   <meta name="description" content="${escapeHtml(metaDesc)}">
   <meta name="robots" content="index, follow">
   <link rel="canonical" href="${escapeHtml(canonicalUrl)}">
+  ${getGoogleVerificationTag()}
   <meta property="og:type" content="website">
   <meta property="og:title" content="${escapeHtml(pageTitle)}">
   <meta property="og:description" content="${escapeHtml(metaDesc)}">
@@ -780,6 +790,7 @@ async function renderCmsPage(businessId, path, origin) {
   <meta name="description" content="${escapeHtml(metaDesc)}">
   <meta name="robots" content="index, follow">
   <link rel="canonical" href="${escapeHtml(canonicalUrl)}">
+  ${getGoogleVerificationTag()}
   <meta property="og:type" content="website">
   <meta property="og:title" content="${escapeHtml(pageTitle)}">
   <meta property="og:description" content="${escapeHtml(metaDesc)}">
