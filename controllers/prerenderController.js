@@ -849,7 +849,7 @@ async function renderCmsPage(businessId, path, origin) {
       sections = [
         { heading: 'Return Window', body: 'Products can be returned within 7 days of delivery, provided they are unused, in their original packaging, and accompanied by the original invoice.' },
         { heading: 'Conditions for Return', body: 'Items must not be physically damaged or missing accessories. Software, opened consumables, and customized/build-to-order products are not eligible for return.' },
-        { heading: 'Exchange Process', body: 'To request an exchange, contact our support team with your order number. Once approved, the replacement item is shipped after the original product is received and inspected.' },
+        { heading: 'Exchange & Return Process (By Mail)', body: 'To request an exchange or return, contact our support team with your order number. Once approved, ship the parcel via courier (by mail) to our official store address. The replacement or refund is dispatched after the returned item passes inspection.' },
         { heading: 'Defective or Damaged Items', body: 'Defective or damaged items must be reported within 24 hours of delivery along with an unboxing video proof for immediate replacement.' },
         { heading: 'Warranty Claims', body: 'All products carry the manufacturer warranty stated on the product page. Warranty claims are coordinated directly with the relevant brand’s authorized service center.' },
         { heading: 'Refunds', body: 'Approved refunds are processed back to the original payment method within 7–10 business days of the returned item passing inspection.' },
