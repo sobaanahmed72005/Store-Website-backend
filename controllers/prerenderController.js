@@ -206,7 +206,41 @@ async function renderProduct(businessId, slug, origin) {
         returnFees: 'https://schema.org/FreeReturn',
       },
     },
-  };
+  const [reviews] = await pool.query(
+    `SELECT author_name, rating, comment, created_at
+     FROM product_reviews
+     WHERE business_id = ? AND product_id = ? AND status = 'approved'
+     ORDER BY created_at DESC
+     LIMIT 10`,
+    [businessId, product.id]
+  );
+
+  if (reviews.length > 0) {
+    const totalRating = reviews.reduce((sum, r) => sum + Number(r.rating || 5), 0);
+    const avgRating = Number((totalRating / reviews.length).toFixed(1));
+
+    jsonLdProduct.aggregateRating = {
+      '@type': 'AggregateRating',
+      ratingValue: avgRating,
+      reviewCount: reviews.length,
+    };
+
+    jsonLdProduct.review = reviews.map((r) => ({
+      '@type': 'Review',
+      author: {
+        '@type': 'Person',
+        name: escapeHtml(r.author_name || 'Verified Buyer'),
+      },
+      datePublished: r.created_at ? new Date(r.created_at).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
+      reviewRating: {
+        '@type': 'Rating',
+        ratingValue: Number(r.rating) || 5,
+        bestRating: 5,
+        worstRating: 1,
+      },
+      ...(r.comment ? { reviewBody: escapeHtml(stripHtml(r.comment)) } : {}),
+    }));
+  }
 
   const jsonLdBreadcrumbs = {
     '@context': 'https://schema.org',
@@ -274,6 +308,23 @@ async function renderProduct(businessId, slug, origin) {
         <h2>Key Specifications</h2>
         <ul>
           ${allSpecs.map((s) => `<li><strong>${escapeHtml(s.name)}:</strong> ${escapeHtml(s.value)}</li>`).join('')}
+        </ul>
+      </div>`
+          : ''
+      }
+      ${
+        reviews.length > 0
+          ? `<div>
+        <h2>Customer Reviews (${reviews.length})</h2>
+        <ul>
+          ${reviews
+            .map(
+              (r) => `<li>
+            <strong>${escapeHtml(r.author_name || 'Verified Buyer')}</strong> — ${r.rating}/5 Stars
+            ${r.comment ? `<p>${escapeHtml(stripHtml(r.comment))}</p>` : ''}
+          </li>`
+            )
+            .join('')}
         </ul>
       </div>`
           : ''
