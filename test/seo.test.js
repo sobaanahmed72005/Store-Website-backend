@@ -105,5 +105,81 @@ describe('seo', () => {
       }
     });
   });
+
+  describe('GET /prerender', () => {
+    it('returns prerendered HTML for home page (/)', async () => {
+      const res = await request.get('/prerender?path=/');
+      assert.equal(res.status, 200);
+      assert.ok(res.headers['content-type'].includes('text/html'));
+      assert.ok(res.text.includes('<!DOCTYPE html>'));
+      assert.ok(res.text.includes('<title>'));
+      assert.ok(res.text.includes('IT Solutions Pakistan'));
+      assert.ok(res.text.includes('application/ld+json'));
+    });
+
+    it('returns prerendered HTML for /shop page', async () => {
+      const res = await request.get('/prerender?path=/shop');
+      assert.equal(res.status, 200);
+      assert.ok(res.headers['content-type'].includes('text/html'));
+      assert.ok(res.text.includes('Shop All Products'));
+    });
+
+    it('returns prerendered HTML for a product page with Product JSON-LD schema', async () => {
+      const [[business]] = await pool.query("SELECT id FROM businesses WHERE slug = 'main'");
+      const slug = `test-prerender-product-${Date.now()}`;
+      const [prodRes] = await pool.query(
+        "INSERT INTO products (business_id, name, slug, price, stock, brand, description, is_active) VALUES (?, 'Hikvision 4K Camera', ?, 25000, 10, 'Hikvision', 'Ultra HD security camera', 1)",
+        [business.id, slug]
+      );
+
+      try {
+        const res = await request.get(`/prerender?path=/product/${slug}`);
+        assert.equal(res.status, 200);
+        assert.ok(res.headers['content-type'].includes('text/html'));
+        assert.ok(res.text.includes('Hikvision 4K Camera'));
+        assert.ok(res.text.includes('25,000'));
+        assert.ok(res.text.includes('og:type" content="product"'));
+        assert.ok(res.text.includes('"@type":"Product"'));
+        assert.ok(res.text.includes('"price":"25000"'));
+      } finally {
+        await pool.query('DELETE FROM products WHERE id = ?', [prodRes.insertId]);
+      }
+    });
+
+    it('returns prerendered HTML for a category page', async () => {
+      const [[business]] = await pool.query("SELECT id FROM businesses WHERE slug = 'main'");
+      const slug = `test-prerender-cat-${Date.now()}`;
+      const [catRes] = await pool.query(
+        "INSERT INTO categories (business_id, name, slug, description) VALUES (?, 'Security Solutions', ?, 'Top cameras and NVRs')",
+        [business.id, slug]
+      );
+
+      try {
+        const res = await request.get(`/prerender?path=/category/${slug}`);
+        assert.equal(res.status, 200);
+        assert.ok(res.headers['content-type'].includes('text/html'));
+        assert.ok(res.text.includes('Security Solutions'));
+        assert.ok(res.text.includes('Top cameras and NVRs'));
+        assert.ok(res.text.includes('BreadcrumbList'));
+      } finally {
+        await pool.query('DELETE FROM categories WHERE id = ?', [catRes.insertId]);
+      }
+    });
+
+    it('returns 404 HTML for non-existent product slug', async () => {
+      const res = await request.get('/prerender?path=/product/non-existent-slug-xyz-12345');
+      assert.equal(res.status, 404);
+      assert.ok(res.headers['content-type'].includes('text/html'));
+      assert.ok(res.text.includes('404'));
+    });
+
+    it('returns 404 HTML for malformed slug (security path traversal attempt)', async () => {
+      const res = await request.get('/prerender?path=/product/../../etc/passwd');
+      assert.equal(res.status, 404);
+      assert.ok(res.headers['content-type'].includes('text/html'));
+      assert.ok(res.text.includes('404'));
+    });
+  });
 });
+
 
