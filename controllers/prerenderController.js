@@ -830,13 +830,86 @@ async function renderCmsPage(businessId, path, origin) {
 </html>`;
   }
 
+  if (path === '/return-exchange') {
+    const pageTitle = 'Return & Exchange Policy — IT Solutions Pakistan';
+    const metaDesc = 'Read the official return, exchange, 7-day replacement, defective item guidelines, and shipping charges policy at IT Solutions Pakistan.';
+    
+    let sections = [];
+    try {
+      const [rows] = await pool.query('SELECT value FROM site_content WHERE business_id = ? AND content_key = ?', [businessId, 'policies']);
+      if (rows.length > 0) {
+        const val = typeof rows[0].value === 'string' ? JSON.parse(rows[0].value) : rows[0].value;
+        if (Array.isArray(val.sections)) sections = val.sections;
+      }
+    } catch (err) {
+      console.error('Error fetching prerender policy content:', err);
+    }
+
+    if (sections.length === 0) {
+      sections = [
+        { heading: 'Return Window', body: 'Products can be returned within 7 days of delivery, provided they are unused, in their original packaging, and accompanied by the original invoice.' },
+        { heading: 'Conditions for Return', body: 'Items must not be physically damaged or missing accessories. Software, opened consumables, and customized/build-to-order products are not eligible for return.' },
+        { heading: 'Exchange Process', body: 'To request an exchange, contact our support team with your order number. Once approved, the replacement item is shipped after the original product is received and inspected.' },
+        { heading: 'Defective or Damaged Items', body: 'Defective or damaged items must be reported within 24 hours of delivery along with an unboxing video proof for immediate replacement.' },
+        { heading: 'Warranty Claims', body: 'All products carry the manufacturer warranty stated on the product page. Warranty claims are coordinated directly with the relevant brand’s authorized service center.' },
+        { heading: 'Refunds', body: 'Approved refunds are processed back to the original payment method within 7–10 business days of the returned item passing inspection.' },
+        { heading: 'Return Shipping Charges', body: 'The customer is responsible for paying return shipping/courier charges when sending items back for inspection or exchange.' }
+      ];
+    }
+
+    const jsonLdReturnPolicy = {
+      '@context': 'https://schema.org',
+      '@type': 'MerchantReturnPolicy',
+      name: 'IT Solutions Return & Exchange Policy',
+      applicableCountry: 'PK',
+      returnPolicyCategory: 'https://schema.org/MerchantReturnFiniteReturnWindow',
+      merchantReturnDays: 7,
+      returnMethod: 'https://schema.org/ReturnByMail',
+      returnFees: 'https://schema.org/ReturnFeesCustomerResponsibility',
+      customerRemorseReturnFees: 'https://schema.org/ReturnFeesCustomerResponsibility',
+      itemCondition: 'https://schema.org/NewCondition',
+      refundType: 'https://schema.org/FullRefund'
+    };
+
+    return `<!DOCTYPE html>
+<html lang="en-PK">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${escapeHtml(pageTitle)}</title>
+  <meta name="description" content="${escapeHtml(metaDesc)}">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="${escapeHtml(canonicalUrl)}">
+  ${getGoogleVerificationTag()}
+  <script type="application/ld+json">${JSON.stringify(jsonLdReturnPolicy)}</script>
+</head>
+<body>
+  <header>
+    <nav>
+      <a href="${origin}">Home</a> › <span>Return &amp; Exchange Policy</span>
+    </nav>
+  </header>
+  <main>
+    <h1>Return &amp; Exchange Policy</h1>
+    ${sections.map(s => `
+      <section>
+        <h2>${escapeHtml(s.heading)}</h2>
+        <p>${escapeHtml(s.body)}</p>
+      </section>
+    `).join('')}
+  </main>
+  <footer>
+    <p>&copy; ${new Date().getFullYear()} IT Solutions Pakistan. All rights reserved.</p>
+  </footer>
+</body>
+</html>`;
+  }
+
   const titles = {
-    '/return-exchange': 'Return & Exchange Policy — IT Solutions Pakistan',
     '/privacy-policy': 'Privacy Policy — IT Solutions Pakistan',
   };
 
   const h1s = {
-    '/return-exchange': 'Return & Exchange Policy',
     '/privacy-policy': 'Privacy Policy',
   };
 
