@@ -168,7 +168,42 @@ async function renderProduct(businessId, slug, origin) {
       availability: inStock ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',
       seller: {
         '@type': 'Organization',
-        name: 'IT Solutions Pakistan',
+        name: 'IT Solutions Trade & Service Pvt. Ltd.',
+      },
+      shippingDetails: {
+        '@type': 'OfferShippingDetails',
+        shippingRate: {
+          '@type': 'MonetaryAmount',
+          value: '0',
+          currency: 'PKR',
+        },
+        shippingDestination: {
+          '@type': 'DefinedRegion',
+          addressCountry: 'PK',
+        },
+        deliveryTime: {
+          '@type': 'ShippingDeliveryTime',
+          handlingTime: {
+            '@type': 'QuantitativeValue',
+            minValue: 1,
+            maxValue: 2,
+            unitCode: 'DAY',
+          },
+          transitTime: {
+            '@type': 'QuantitativeValue',
+            minValue: 2,
+            maxValue: 4,
+            unitCode: 'DAY',
+          },
+        },
+      },
+      hasMerchantReturnPolicy: {
+        '@type': 'MerchantReturnPolicy',
+        applicableCountry: 'PK',
+        returnPolicyCategory: 'https://schema.org/MerchantReturnFiniteReturnWindow',
+        merchantReturnDays: 7,
+        returnMethod: 'https://schema.org/ReturnByMail',
+        returnFees: 'https://schema.org/FreeReturn',
       },
     },
   };
@@ -343,6 +378,12 @@ async function renderCategory(businessId, slug, origin) {
       </ul>`
           : '<p>No products found in this category.</p>'
       }
+    </section>
+
+    <section>
+      <h2>Buy ${escapeHtml(category.name)} Online in Pakistan — IT Solutions</h2>
+      <p>Welcome to IT Solutions Pakistan's official store for <strong>${escapeHtml(category.name)}</strong>. We bring you 100% genuine products with official brand warranty, competitive market prices, and fast nationwide delivery across Pakistan, including Lahore, Karachi, Islamabad, Rawalpindi, Multan, and Peshawar.</p>
+      <p>Whether you are upgrading your home setup or equipping your enterprise office, explore our curated range of ${escapeHtml(category.name.toLowerCase())} designed for durability and high performance. All orders are backed by Cash on Delivery (COD) and dedicated technical support.</p>
     </section>
   </main>
   <footer>
