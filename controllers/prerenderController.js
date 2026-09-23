@@ -382,7 +382,7 @@ async function renderCategory(businessId, slug, origin) {
 
     <section>
       <h2>Buy ${escapeHtml(category.name)} Online in Pakistan — IT Solutions</h2>
-      <p>Welcome to IT Solutions Pakistan's official store for <strong>${escapeHtml(category.name)}</strong>. We bring you 100% genuine products with official brand warranty, competitive market prices, and fast nationwide delivery across Pakistan, including Lahore, Karachi, Islamabad, Rawalpindi, Multan, and Peshawar.</p>
+      <p>Welcome to IT Solutions Pakistan's official store for <strong>${escapeHtml(category.name)}</strong>. We bring you 100% genuine products with official brand warranty, competitive market prices, free shipping on your first order, and fast nationwide delivery across Pakistan, including Lahore, Karachi, Islamabad, Rawalpindi, Multan, and Peshawar.</p>
       <p>Whether you are upgrading your home setup or equipping your enterprise office, explore our curated range of ${escapeHtml(category.name.toLowerCase())} designed for durability and high performance. All orders are backed by Cash on Delivery (COD) and dedicated technical support.</p>
     </section>
   </main>
