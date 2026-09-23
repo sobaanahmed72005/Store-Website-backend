@@ -509,6 +509,12 @@ async function renderHome(businessId, origin) {
         closes: '20:00',
       },
     ],
+    geo: {
+      '@type': 'GeoCoordinates',
+      latitude: 31.5126,
+      longitude: 74.3436,
+    },
+    hasMap: 'https://maps.google.com/?q=Fazal+Trade+Center+Hafeez+Center+Gulberg+Lahore',
     paymentAccepted: 'Cash on Delivery, Bank Transfer, Credit Card',
   };
 
@@ -572,21 +578,164 @@ async function renderHome(businessId, origin) {
 }
 
 async function renderCmsPage(businessId, path, origin) {
+  const canonicalUrl = `${origin}${path}`;
+
+  if (path === '/contact') {
+    const pageTitle = 'Contact Us — Customer Support & Store Location | IT Solutions Pakistan';
+    const metaDesc = 'Contact IT Solutions customer support. Get help with laptop sales, CCTV camera quotes, order tracking, and store address in Lahore, Pakistan. Phone/WhatsApp: +92 300 4265499.';
+    const jsonLdContact = {
+      '@context': 'https://schema.org',
+      '@type': 'ContactPage',
+      mainEntity: {
+        '@type': 'LocalBusiness',
+        name: 'IT Solutions Trade & Service Pvt. Ltd.',
+        telephone: '+92 300 4265499',
+        email: 'itsolutions543@gmail.com',
+        priceRange: 'PKR',
+        address: {
+          '@type': 'PostalAddress',
+          streetAddress: 'Office # 19, 2nd Floor, Fazal Trade Center, Near Hafeez Center, Gulberg III',
+          addressLocality: 'Lahore',
+          addressRegion: 'Punjab',
+          postalCode: '54660',
+          addressCountry: 'PK',
+        },
+        geo: {
+          '@type': 'GeoCoordinates',
+          latitude: 31.5126,
+          longitude: 74.3436,
+        },
+        openingHoursSpecification: [
+          {
+            '@type': 'OpeningHoursSpecification',
+            dayOfWeek: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
+            opens: '10:00',
+            closes: '20:00',
+          },
+        ],
+        hasMap: 'https://maps.google.com/?q=Fazal+Trade+Center+Hafeez+Center+Gulberg+Lahore',
+      },
+    };
+
+    return `<!DOCTYPE html>
+<html lang="en-PK">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${escapeHtml(pageTitle)}</title>
+  <meta name="description" content="${escapeHtml(metaDesc)}">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="${escapeHtml(canonicalUrl)}">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="${escapeHtml(pageTitle)}">
+  <meta property="og:description" content="${escapeHtml(metaDesc)}">
+  <meta property="og:url" content="${escapeHtml(canonicalUrl)}">
+  <script type="application/ld+json">${JSON.stringify(jsonLdContact)}</script>
+</head>
+<body>
+  <header>
+    <nav>
+      <a href="${origin}">Home</a> › <span>Contact Us</span>
+    </nav>
+  </header>
+  <main>
+    <h1>Contact IT Solutions Pakistan</h1>
+    <section>
+      <h2>Physical Store Location & Contact Info</h2>
+      <p><strong>Store Address:</strong> Office # 19, 2nd Floor, Fazal Trade Center, Near Hafeez Center, Gulberg III, Lahore, Punjab 54660, Pakistan</p>
+      <p><strong>Phone / WhatsApp:</strong> <a href="tel:+923004265499">+92 300 4265499</a></p>
+      <p><strong>Support Email:</strong> <a href="mailto:itsolutions543@gmail.com">itsolutions543@gmail.com</a></p>
+      <p><strong>Working Hours:</strong> Monday – Saturday (10:00 AM – 8:00 PM PKT)</p>
+      <p><a href="https://maps.google.com/?q=Fazal+Trade+Center+Hafeez+Center+Gulberg+Lahore" target="_blank">Get Google Maps Directions</a></p>
+    </section>
+    <section>
+      <h2>Nationwide Delivery & Support</h2>
+      <p>IT Solutions provides fast Cash on Delivery (COD) and courier shipping to Lahore, Karachi, Islamabad, Rawalpindi, Faisalabad, Multan, Peshawar, Quetta, and 200+ cities across Pakistan with free shipping on your first order and a 7-day return guarantee.</p>
+    </section>
+  </main>
+  <footer>
+    <p>&copy; ${new Date().getFullYear()} IT Solutions Pakistan. All rights reserved.</p>
+  </footer>
+</body>
+</html>`;
+  }
+
+  if (path === '/about-us') {
+    const pageTitle = 'About Us — IT Solutions Pakistan | Authorized Tech Store & Hardware Supplier';
+    const metaDesc = 'Learn about IT Solutions — Pakistan\'s trusted IT store for laptops, security surveillance systems, networking hardware, and solar solutions.';
+    const jsonLdOrg = {
+      '@context': 'https://schema.org',
+      '@type': 'Organization',
+      name: 'IT Solutions Trade & Service Pvt. Ltd.',
+      url: origin,
+      logo: `${origin}/favicon.svg`,
+      contactPoint: {
+        '@type': 'ContactPoint',
+        telephone: '+92 300 4265499',
+        contactType: 'customer service',
+        areaServed: 'PK',
+        availableLanguage: ['en', 'ur'],
+      },
+      address: {
+        '@type': 'PostalAddress',
+        streetAddress: 'Office # 19, 2nd Floor, Fazal Trade Center, Near Hafeez Center, Gulberg III',
+        addressLocality: 'Lahore',
+        addressRegion: 'Punjab',
+        postalCode: '54660',
+        addressCountry: 'PK',
+      },
+    };
+
+    return `<!DOCTYPE html>
+<html lang="en-PK">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${escapeHtml(pageTitle)}</title>
+  <meta name="description" content="${escapeHtml(metaDesc)}">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="${escapeHtml(canonicalUrl)}">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="${escapeHtml(pageTitle)}">
+  <meta property="og:description" content="${escapeHtml(metaDesc)}">
+  <meta property="og:url" content="${escapeHtml(canonicalUrl)}">
+  <script type="application/ld+json">${JSON.stringify(jsonLdOrg)}</script>
+</head>
+<body>
+  <header>
+    <nav>
+      <a href="${origin}">Home</a> › <span>About Us</span>
+    </nav>
+  </header>
+  <main>
+    <h1>About IT Solutions Pakistan</h1>
+    <section>
+      <p>IT Solutions Trade & Service Pvt. Ltd. is a premier supplier of high-performance laptops, Hikvision security cameras, networking equipment, and solar inverter solutions in Pakistan.</p>
+      <p>Located in Gulberg III, Lahore near Hafeez Center, we deliver genuine tech products with official brand warranty, transparent market rates, and nationwide Cash on Delivery (COD) services.</p>
+    </section>
+    <section>
+      <h2>Visit Our Physical Store</h2>
+      <p>Office # 19, 2nd Floor, Fazal Trade Center, Near Hafeez Center, Gulberg III, Lahore, Punjab 54660, Pakistan.</p>
+      <p>Store Hours: Monday to Saturday (10:00 AM – 8:00 PM PKT)</p>
+    </section>
+  </main>
+  <footer>
+    <p>&copy; ${new Date().getFullYear()} IT Solutions Pakistan. All rights reserved.</p>
+  </footer>
+</body>
+</html>`;
+  }
+
   const titles = {
-    '/about-us': 'About Us — IT Solutions Pakistan',
-    '/contact': 'Contact Us — IT Solutions Pakistan',
     '/return-exchange': 'Return & Exchange Policy — IT Solutions Pakistan',
     '/privacy-policy': 'Privacy Policy — IT Solutions Pakistan',
   };
 
   const h1s = {
-    '/about-us': 'About IT Solutions Pakistan',
-    '/contact': 'Contact Us',
     '/return-exchange': 'Return & Exchange Policy',
     '/privacy-policy': 'Privacy Policy',
   };
 
-  const canonicalUrl = `${origin}${path}`;
   const pageTitle = titles[path] || 'IT Solutions Pakistan';
   const h1Text = h1s[path] || 'Information';
 
