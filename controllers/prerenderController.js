@@ -146,6 +146,15 @@ async function renderProduct(businessId, slug, origin) {
   const formattedPrice = Number(effectivePrice).toLocaleString('en-PK');
   const inStock = product.stock > 0;
 
+  const [reviews] = await pool.query(
+    `SELECT author_name, rating, comment, created_at
+     FROM product_reviews
+     WHERE business_id = ? AND product_id = ? AND status = 'approved'
+     ORDER BY created_at DESC
+     LIMIT 10`,
+    [businessId, product.id]
+  );
+
   const jsonLdProduct = {
     '@context': 'https://schema.org',
     '@type': 'Product',
@@ -206,14 +215,7 @@ async function renderProduct(businessId, slug, origin) {
         returnFees: 'https://schema.org/FreeReturn',
       },
     },
-  const [reviews] = await pool.query(
-    `SELECT author_name, rating, comment, created_at
-     FROM product_reviews
-     WHERE business_id = ? AND product_id = ? AND status = 'approved'
-     ORDER BY created_at DESC
-     LIMIT 10`,
-    [businessId, product.id]
-  );
+  };
 
   if (reviews.length > 0) {
     const totalRating = reviews.reduce((sum, r) => sum + Number(r.rating || 5), 0);
