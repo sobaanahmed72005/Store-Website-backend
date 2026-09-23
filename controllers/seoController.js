@@ -145,11 +145,19 @@ export async function getProductsFeedXml(req, res) {
     }
 
     itemStr += `\n      <g:brand>${brand}</g:brand>`;
+    itemStr += `\n      <g:mpn>${escapeXml(p.slug)}</g:mpn>`;
+    itemStr += `\n      <g:identifier_exists>false</g:identifier_exists>`;
     itemStr += `\n      <g:condition>new</g:condition>`;
 
     if (category) {
       itemStr += `\n      <g:product_type>${category}</g:product_type>`;
     }
+
+    itemStr += `\n      <g:shipping>`;
+    itemStr += `\n        <g:country>PK</g:country>`;
+    itemStr += `\n        <g:service>Standard Nationwide Delivery</g:service>`;
+    itemStr += `\n        <g:price>0.00 PKR</g:price>`;
+    itemStr += `\n      </g:shipping>`;
 
     itemStr += `\n    </item>`;
     return itemStr;
