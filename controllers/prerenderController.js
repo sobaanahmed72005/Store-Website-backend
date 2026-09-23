@@ -388,6 +388,14 @@ async function renderCategory(businessId, slug, origin) {
   <meta property="og:title" content="${pageTitle}">
   <meta property="og:description" content="${metaDesc}">
   <meta property="og:url" content="${escapeHtml(canonicalUrl)}">
+  <meta property="og:image" content="${origin}/og-image.jpg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:type" content="image/jpeg">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="${pageTitle}">
+  <meta name="twitter:description" content="${metaDesc}">
+  <meta name="twitter:image" content="${origin}/og-image.jpg">
   <script type="application/ld+json">${JSON.stringify(jsonLdBreadcrumbs)}</script>
 </head>
 <body>
@@ -477,6 +485,14 @@ async function renderShop(businessId, origin) {
   <meta property="og:title" content="${pageTitle}">
   <meta property="og:description" content="${metaDesc}">
   <meta property="og:url" content="${escapeHtml(canonicalUrl)}">
+  <meta property="og:image" content="${origin}/og-image.jpg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:type" content="image/jpeg">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="${pageTitle}">
+  <meta name="twitter:description" content="${metaDesc}">
+  <meta name="twitter:image" content="${origin}/og-image.jpg">
 </head>
 <body>
   <header>
@@ -585,6 +601,14 @@ async function renderHome(businessId, origin) {
   <meta property="og:title" content="${pageTitle}">
   <meta property="og:description" content="${metaDesc}">
   <meta property="og:url" content="${escapeHtml(canonicalUrl)}">
+  <meta property="og:image" content="${origin}/og-image.jpg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:type" content="image/jpeg">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="${pageTitle}">
+  <meta name="twitter:description" content="${metaDesc}">
+  <meta name="twitter:image" content="${origin}/og-image.jpg">
   <script type="application/ld+json">${JSON.stringify(jsonLdOrg)}</script>
 </head>
 <body>
@@ -683,6 +707,14 @@ async function renderCmsPage(businessId, path, origin) {
   <meta property="og:title" content="${escapeHtml(pageTitle)}">
   <meta property="og:description" content="${escapeHtml(metaDesc)}">
   <meta property="og:url" content="${escapeHtml(canonicalUrl)}">
+  <meta property="og:image" content="${origin}/og-image.jpg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:type" content="image/jpeg">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="${escapeHtml(pageTitle)}">
+  <meta name="twitter:description" content="${escapeHtml(metaDesc)}">
+  <meta name="twitter:image" content="${origin}/og-image.jpg">
   <script type="application/ld+json">${JSON.stringify(jsonLdContact)}</script>
 </head>
 <body>
@@ -752,6 +784,14 @@ async function renderCmsPage(businessId, path, origin) {
   <meta property="og:title" content="${escapeHtml(pageTitle)}">
   <meta property="og:description" content="${escapeHtml(metaDesc)}">
   <meta property="og:url" content="${escapeHtml(canonicalUrl)}">
+  <meta property="og:image" content="${origin}/og-image.jpg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:type" content="image/jpeg">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="${escapeHtml(pageTitle)}">
+  <meta name="twitter:description" content="${escapeHtml(metaDesc)}">
+  <meta name="twitter:image" content="${origin}/og-image.jpg">
   <script type="application/ld+json">${JSON.stringify(jsonLdOrg)}</script>
 </head>
 <body>
