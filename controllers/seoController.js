@@ -155,7 +155,7 @@ export async function getProductsFeedXml(req, res) {
 
     itemStr += `\n      <g:shipping>`;
     itemStr += `\n        <g:country>PK</g:country>`;
-    itemStr += `\n        <g:service>Standard Nationwide Delivery</g:service>`;
+    itemStr += `\n        <g:service>Standard Nationwide Delivery (Free on 1st Order)</g:service>`;
     itemStr += `\n        <g:price>0.00 PKR</g:price>`;
     itemStr += `\n      </g:shipping>`;
 
