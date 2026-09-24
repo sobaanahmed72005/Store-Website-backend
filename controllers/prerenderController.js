@@ -37,6 +37,22 @@ function escapeHtml(str) {
     .replace(/'/g, '&#39;');
 }
 
+function getPriceValidUntil() {
+  const now = new Date();
+  const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  if (endOfMonth.getDate() - now.getDate() < 3) {
+    const endOfNextMonth = new Date(now.getFullYear(), now.getMonth() + 2, 0);
+    const y = endOfNextMonth.getFullYear();
+    const m = String(endOfNextMonth.getMonth() + 1).padStart(2, '0');
+    const d = String(endOfNextMonth.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  const y = endOfMonth.getFullYear();
+  const m = String(endOfMonth.getMonth() + 1).padStart(2, '0');
+  const d = String(endOfMonth.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 function stripHtml(html) {
   if (!html) return '';
   return String(html)
@@ -186,7 +202,7 @@ async function renderProduct(businessId, slug, origin) {
       url: canonicalUrl,
       priceCurrency: 'PKR',
       price: String(effectivePrice),
-      priceValidUntil: '2027-12-31',
+      priceValidUntil: getPriceValidUntil(),
       itemCondition: 'https://schema.org/NewCondition',
       availability: inStock ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',
       seller: {
