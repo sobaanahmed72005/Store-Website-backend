@@ -7,6 +7,7 @@ import { ADMIN_PATH } from '../config/env.js';
 const STATIC_PATHS = [
   { path: '/', changefreq: 'daily', priority: '1.0' },
   { path: '/shop', changefreq: 'daily', priority: '0.9' },
+  { path: '/blog', changefreq: 'daily', priority: '0.8' },
   { path: '/about-us', changefreq: 'monthly', priority: '0.5' },
   { path: '/contact', changefreq: 'monthly', priority: '0.5' },
   { path: '/return-exchange', changefreq: 'monthly', priority: '0.3' },
@@ -69,6 +70,10 @@ export async function getSitemap(req, res) {
     'SELECT slug, updated_at, created_at FROM products WHERE business_id = ? AND is_active = 1 ORDER BY updated_at DESC LIMIT ?',
     [req.business.id, SITEMAP_URL_LIMIT]
   );
+  const [blogPosts] = await pool.query(
+    'SELECT slug, updated_at, created_at FROM blog_posts WHERE business_id = ? AND is_published = 1 ORDER BY updated_at DESC LIMIT ?',
+    [req.business.id, SITEMAP_URL_LIMIT]
+  ).catch(() => [[]]);
 
   const urls = [
     ...STATIC_PATHS.map(({ path, changefreq, priority }) => ({
@@ -88,6 +93,12 @@ export async function getSitemap(req, res) {
       lastmod: formatLastmod(p.updated_at || p.created_at),
       changefreq: 'weekly',
       priority: '0.8',
+    })),
+    ...(Array.isArray(blogPosts) ? blogPosts : []).map((b) => ({
+      loc: `${origin}/blog/${b.slug}`,
+      lastmod: formatLastmod(b.updated_at || b.created_at),
+      changefreq: 'weekly',
+      priority: '0.7',
     })),
   ];
 

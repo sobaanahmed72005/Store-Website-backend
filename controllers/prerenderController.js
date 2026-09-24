@@ -91,6 +91,14 @@ export async function prerenderPage(req, res) {
         return res.status(404).type('text/html; charset=utf-8').send(render404(origin, 'Category not found'));
       }
       html = await renderCategory(businessId, slug, origin);
+    } else if (path === '/blog') {
+      html = await renderBlogList(businessId, origin);
+    } else if (path.startsWith('/blog/')) {
+      const slug = path.replace('/blog/', '').split('?')[0].split('#')[0];
+      if (!SLUG_PATTERN.test(slug)) {
+        return res.status(404).type('text/html; charset=utf-8').send(render404(origin, 'Post not found'));
+      }
+      html = await renderBlogPost(businessId, slug, origin);
     } else if (['/about-us', '/contact', '/return-exchange', '/privacy-policy'].includes(path)) {
       html = await renderCmsPage(businessId, path, origin);
     } else {
@@ -934,6 +942,161 @@ async function renderCmsPage(businessId, path, origin) {
   <main>
     <h1>${escapeHtml(h1Text)}</h1>
     <p>Welcome to IT Solutions Pakistan. For inquiries or customer service, please visit our website or contact our support team.</p>
+  </main>
+  <footer>
+    <p>&copy; ${new Date().getFullYear()} IT Solutions Pakistan. All rights reserved.</p>
+  </footer>
+</body>
+</html>`;
+}
+
+async function renderBlogList(businessId, origin) {
+  const canonicalUrl = `${origin}/blog`;
+  const pageTitle = 'Tech Blog & Buying Guides — 4K CCTV, Routers, Solar & Laptops | IT Solutions Pakistan';
+  const metaDesc = 'Read expert tech buying guides, 4K CCTV camera reviews, Wi-Fi 6 router comparisons, and solar energy solutions for home & office in Pakistan.';
+
+  const [posts] = await pool.query(
+    'SELECT title, slug, excerpt, cover_image, category, author, read_time, created_at FROM blog_posts WHERE business_id = ? AND is_published = 1 ORDER BY created_at DESC LIMIT 20',
+    [businessId]
+  ).catch(() => [[]]);
+
+  return `<!DOCTYPE html>
+<html lang="en-PK">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${escapeHtml(pageTitle)}</title>
+  <meta name="description" content="${escapeHtml(metaDesc)}">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="${escapeHtml(canonicalUrl)}">
+  ${getGoogleVerificationTag()}
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="${escapeHtml(pageTitle)}">
+  <meta property="og:description" content="${escapeHtml(metaDesc)}">
+  <meta property="og:url" content="${escapeHtml(canonicalUrl)}">
+  <meta property="og:image" content="${origin}/og-image.jpg">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="${escapeHtml(pageTitle)}">
+  <meta name="twitter:description" content="${escapeHtml(metaDesc)}">
+</head>
+<body>
+  <header>
+    <nav>
+      <a href="${origin}">Home</a> › <span>Tech Blog &amp; Guides</span>
+    </nav>
+  </header>
+  <main>
+    <h1>Tech Blog &amp; Buying Guides</h1>
+    <p>Expert buyer guides, CCTV surveillance setups, networking tips, and tech advice in Pakistan.</p>
+    <section>
+      <h2>Latest Tech Articles</h2>
+      <ul>
+        ${(Array.isArray(posts) ? posts : []).map(p => `
+          <li>
+            <article>
+              <h3><a href="${origin}/blog/${escapeHtml(p.slug)}">${escapeHtml(p.title)}</a></h3>
+              <p>${escapeHtml(p.excerpt)}</p>
+              <small>Category: ${escapeHtml(p.category)} | ${escapeHtml(p.read_time)}</small>
+            </article>
+          </li>
+        `).join('')}
+      </ul>
+    </section>
+  </main>
+  <footer>
+    <p>&copy; ${new Date().getFullYear()} IT Solutions Pakistan. All rights reserved.</p>
+  </footer>
+</body>
+</html>`;
+}
+
+async function renderBlogPost(businessId, slug, origin) {
+  const [rows] = await pool.query(
+    'SELECT * FROM blog_posts WHERE business_id = ? AND slug = ? AND is_published = 1',
+    [businessId, slug]
+  );
+
+  if (rows.length === 0) {
+    return render404(origin, 'Blog post not found');
+  }
+
+  const post = rows[0];
+  const canonicalUrl = `${origin}/blog/${post.slug}`;
+  const pageTitle = `${post.title} | IT Solutions Pakistan`;
+  const metaDesc = post.excerpt ? post.excerpt.slice(0, 160) : post.title;
+  const coverImg = post.cover_image || `${origin}/og-image.jpg`;
+
+  const jsonLdArticle = {
+    '@context': 'https://schema.org',
+    '@type': 'BlogPosting',
+    headline: post.title,
+    description: post.excerpt,
+    image: [coverImg],
+    author: {
+      '@type': 'Organization',
+      name: post.author || 'IT Solutions Tech Team',
+      url: origin,
+    },
+    publisher: {
+      '@type': 'Organization',
+      name: 'IT Solutions Trade & Service Pvt. Ltd.',
+      logo: {
+        '@type': 'ImageObject',
+        url: `${origin}/favicon.svg`,
+      },
+    },
+    datePublished: post.created_at ? new Date(post.created_at).toISOString() : new Date().toISOString(),
+    dateModified: post.updated_at ? new Date(post.updated_at).toISOString() : new Date().toISOString(),
+    mainEntityOfPage: {
+      '@type': 'WebPage',
+      '@id': canonicalUrl,
+    },
+  };
+
+  const jsonLdBreadcrumb = {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Home', item: origin },
+      { '@type': 'ListItem', position: 2, name: 'Blog', item: `${origin}/blog` },
+      { '@type': 'ListItem', position: 3, name: post.title, item: canonicalUrl },
+    ],
+  };
+
+  return `<!DOCTYPE html>
+<html lang="en-PK">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${escapeHtml(pageTitle)}</title>
+  <meta name="description" content="${escapeHtml(metaDesc)}">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="${escapeHtml(canonicalUrl)}">
+  ${getGoogleVerificationTag()}
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="${escapeHtml(pageTitle)}">
+  <meta property="og:description" content="${escapeHtml(metaDesc)}">
+  <meta property="og:url" content="${escapeHtml(canonicalUrl)}">
+  <meta property="og:image" content="${escapeHtml(coverImg)}">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="${escapeHtml(pageTitle)}">
+  <meta name="twitter:description" content="${escapeHtml(metaDesc)}">
+  <meta name="twitter:image" content="${escapeHtml(coverImg)}">
+  <script type="application/ld+json">${JSON.stringify(jsonLdArticle)}</script>
+  <script type="application/ld+json">${JSON.stringify(jsonLdBreadcrumb)}</script>
+</head>
+<body>
+  <header>
+    <nav>
+      <a href="${origin}">Home</a> › <a href="${origin}/blog">Blog</a> › <span>${escapeHtml(post.title)}</span>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1>${escapeHtml(post.title)}</h1>
+      <p><em>Category: ${escapeHtml(post.category)} | By ${escapeHtml(post.author)} | ${escapeHtml(post.read_time)}</em></p>
+      <div>${post.content}</div>
+    </article>
   </main>
   <footer>
     <p>&copy; ${new Date().getFullYear()} IT Solutions Pakistan. All rights reserved.</p>
