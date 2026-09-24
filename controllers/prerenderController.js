@@ -53,6 +53,58 @@ function getPriceValidUntil() {
   return `${y}-${m}-${d}`;
 }
 
+function extractSkuFromProduct(product) {
+  if (!product) return 'ITS-PROD';
+
+  if (product.sku && String(product.sku).trim() && String(product.sku).trim() !== String(product.id)) {
+    return String(product.sku).trim();
+  }
+
+  const isModelKey = (key) => {
+    if (!key) return false;
+    const k = String(key).trim().toLowerCase();
+    return (
+      k === 'model' ||
+      k === 'model number' ||
+      k === 'model no' ||
+      k === 'model no.' ||
+      k === 'model #' ||
+      k === 'mpn' ||
+      k === 'part number' ||
+      k === 'part no' ||
+      k === 'part #' ||
+      k === 'sku' ||
+      k === 'product code' ||
+      k.includes('model number') ||
+      k.includes('part number')
+    );
+  };
+
+  const specs = Array.isArray(product.specifications)
+    ? product.specifications
+    : Array.isArray(product.specs)
+    ? product.specs
+    : [];
+
+  for (const s of specs) {
+    const key = s.attribute || s.attribute_name || s.label || s.name || s.key;
+    if (isModelKey(key) && s.value && String(s.value).trim()) {
+      return String(s.value).trim();
+    }
+  }
+
+  if (Array.isArray(product.spec_overrides)) {
+    for (const o of product.spec_overrides) {
+      if (isModelKey(o.attribute_name) && o.value && String(o.value).trim()) {
+        return String(o.value).trim();
+      }
+    }
+  }
+
+  const cat = product.category_name ? product.category_name.replace(/[^a-zA-Z]/g, '').slice(0, 3).toUpperCase() : 'ITS';
+  return `${cat}-${product.id || 'PROD'}`;
+}
+
 function stripHtml(html) {
   if (!html) return '';
   return String(html)
@@ -191,8 +243,8 @@ async function renderProduct(businessId, slug, origin) {
     name: product.name,
     image: [imageUrl],
     description: plainDesc.slice(0, 300),
-    sku: String(product.id),
-    mpn: product.slug,
+    sku: extractSkuFromProduct(product),
+    mpn: extractSkuFromProduct(product),
     brand: {
       '@type': 'Brand',
       name: product.brand || 'IT Solutions',
