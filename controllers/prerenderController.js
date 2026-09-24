@@ -243,6 +243,7 @@ async function renderProduct(businessId, slug, origin) {
     name: product.name,
     image: [imageUrl],
     description: plainDesc.slice(0, 300),
+    category: product.category_name || product.category || undefined,
     sku: extractSkuFromProduct(product),
     mpn: extractSkuFromProduct(product),
     brand: {
