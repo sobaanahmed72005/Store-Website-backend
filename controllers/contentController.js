@@ -1,9 +1,36 @@
 import pool from '../config/db.js';
 import { TEMPLATE_DEFAULTS } from '../utils/emailLoader.js';
 
-const ALLOWED_KEYS = ['about-us', 'footer-brand', 'site-settings', 'policies', 'currency-settings', 'shipping-settings', 'privacy-policy', 'payment-settings', 'hero-banners', 'announcement-bar', 'email-templates', 'homepage-seo'];
+const ALLOWED_KEYS = ['about-us', 'footer-brand', 'site-settings', 'policies', 'currency-settings', 'shipping-settings', 'privacy-policy', 'payment-settings', 'hero-banners', 'announcement-bar', 'email-templates', 'homepage-seo', 'contact-us'];
 
 const DEFAULTS = {
+  'contact-us': {
+    mainBranch: {
+      tagline: 'MAIN BRANCH LOCATION',
+      title: 'IT Solutions Lahore Store',
+      address: 'Office # 19, 2nd Floor, Fazal Trade Center, Near Hafeez Center, Gulberg III, Lahore, Punjab 54660, Pakistan',
+      phone: '+92 300 4265499',
+      email: 'itsolutions543@gmail.com',
+      hours: 'Monday – Saturday (10:00 AM – 8:00 PM PKT)',
+      mapQuery: 'Fazal Trade Center Hafeez Center Gulberg III Lahore',
+    },
+    deliveryCard: {
+      tagline: 'NATIONWIDE DELIVERY & BRANCH NETWORK',
+      title: 'Serving All Cities Across Pakistan',
+      description: 'We provide fast Cash on Delivery (COD) and courier dispatch to Lahore, Karachi, Islamabad, Rawalpindi, Faisalabad, Multan, Burewala, Peshawar, Quetta, and 200+ cities nationwide.',
+      features: [
+        { label: 'Official Brand Warranty', text: '100% Original products with brand support' },
+        { label: 'Free Shipping', text: 'On your 1st order nationwide (Rs 180 standard)' },
+        { label: '7-Day Return Guarantee', text: 'Hassle-free return & exchange policy' },
+        { label: 'Dedicated Technical Support', text: 'Direct WhatsApp & phone assistance' },
+      ],
+    },
+    regionalBranch: {
+      title: 'Burewala Regional Branch',
+      address: 'Store # 12, Main College Road, Burewala, Vehari, Punjab 61010',
+      mapQuery: 'Main College Road Burewala',
+    },
+  },
   'homepage-seo': {
     title: "Pakistan's Premier IT Hardware & Technology Store",
     intro: "Welcome to IT Solutions — your authorized supplier of genuine IT equipment, office networking solutions, surveillance systems, and high-performance computing hardware in Pakistan. Whether you are setting up home security or equipping a modern corporate office, we offer competitive pricing, official brand warranty, and fast nationwide Cash on Delivery.",
