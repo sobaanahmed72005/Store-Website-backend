@@ -255,7 +255,7 @@ async function renderProduct(businessId, slug, origin) {
         returnPolicyCategory: 'https://schema.org/MerchantReturnFiniteReturnWindow',
         merchantReturnDays: 7,
         returnMethod: 'https://schema.org/ReturnByMail',
-        returnFees: 'https://schema.org/FreeReturn',
+        returnFees: 'https://schema.org/ReturnShippingFeesCustomerPaying',
       },
     },
   };
