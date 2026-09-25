@@ -84,17 +84,18 @@ const DEFAULTS = {
   },
   'about-us': {
     paragraphs: [
-      "Welcome to our store — one of the leading online destinations for computers, laptops, and accessories. Since our founding, we have been committed to bringing genuine, top-quality technology products to our customers.",
-      'From leading laptop brands to graphic cards, monitors, and peripherals, our catalog is built for students, professionals, and gamers alike. We work directly with authorized distributors to make sure every product that reaches you comes with full manufacturer warranty and genuine support.',
+      "Welcome to IT Solutions Pakistan — your premier authorized retailer and trade supplier for genuine computing hardware, laptops, security surveillance systems, networking infrastructure, and smart technology solutions. Headquartered near Hafeez Center in Gulberg III, Lahore, with our regional branch in Burewala, we have built a trusted reputation across Pakistan for delivering 100% authentic tech products backed by official manufacturer warranties.",
+      "Whether you are a student looking for a reliable study laptop, a gamer seeking cutting-edge graphics performance, a corporate enterprise outfitting office workstations, or a homeowner installing 4K security camera surveillance, IT Solutions is your dedicated technology partner. We work directly with official brand distributors to ensure every item in our catalog meets the highest standards of authenticity, performance, and post-purchase customer care.",
+      "Our mission is simple: to make modern technology accessible, affordable, and worry-free for everyone across Pakistan. With fast Cash on Delivery (COD), express nationwide courier dispatch to 200+ cities, and dedicated WhatsApp technical support, we bridge the gap between world-class hardware and seamless shopping.",
     ],
     highlights: [
-      { title: '100% Genuine Products', description: 'Every product we sell is sourced from authorized distributors with full manufacturer warranty.' },
-      { title: 'One Official Store', description: 'We operate only one official store. Beware of fake stores claiming our name.' },
-      { title: 'Nationwide Delivery', description: 'We ship laptops, components, and accessories to every major city.' },
-      { title: 'After-Sales Support', description: 'Our team handles warranty claims, repairs, and exchanges directly so you are never left stranded.' },
+      { title: 'Official Brand Warranty', description: '100% genuine products sourced directly from authorized distributors with official warranty coverage.' },
+      { title: 'Nationwide Delivery & COD', description: 'Fast, safe courier delivery to Lahore, Karachi, Islamabad, Rawalpindi, Burewala, and 200+ cities across Pakistan.' },
+      { title: 'Enterprise & Retail Hardware', description: 'From individual laptop sales to large-scale CCTV security installations, networking setups, and solar energy gear.' },
+      { title: 'Dedicated Technical Support', description: 'Our expert support team is available via phone and WhatsApp to guide you before and after every purchase.' },
     ],
-    storeAddress: 'Add your store address in Admin → About Us Page.',
-    storeTimings: 'Add your store timings in Admin → About Us Page.',
+    storeAddress: 'Office # 19, 2nd Floor, Fazal Trade Center, Near Hafeez Center, Gulberg III, Lahore, Punjab 54660, Pakistan',
+    storeTimings: 'Monday – Saturday (10:00 AM – 8:00 PM PKT)',
   },
   'footer-brand': {
     description: 'Welcome to our store. Update this description in Admin → Footer / Store Info.',
