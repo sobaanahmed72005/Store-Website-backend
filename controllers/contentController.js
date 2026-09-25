@@ -32,12 +32,16 @@ const DEFAULTS = {
     },
   },
   'homepage-seo': {
-    title: "Pakistan's Premier IT Hardware & Technology Store",
-    intro: "Welcome to IT Solutions — your authorized supplier of genuine IT equipment, office networking solutions, surveillance systems, and high-performance computing hardware in Pakistan. Whether you are setting up home security or equipping a modern corporate office, we offer competitive pricing, official brand warranty, and fast nationwide Cash on Delivery.",
+    title: "Pakistan's Premier IT Hardware, Mobile Accessories & Technology Store",
+    intro: "Welcome to IT Solutions — your authorized supplier of genuine laptops, mobile phone accessories, office networking solutions, 4K security surveillance systems, and high-performance computing hardware in Pakistan. Whether you need fast smartphone chargers, home security cameras, or gaming laptops, we offer competitive pricing, official brand warranty, and nationwide Cash on Delivery.",
     columns: [
       {
         heading: 'Laptops & Computing',
         description: 'Explore Apple MacBook, Dell XPS, HP ProBook, Lenovo ThinkPad, and ASUS ROG gaming laptops with official international warranty and authentic power adapters.',
+      },
+      {
+        heading: 'Mobile & Tech Accessories',
+        description: 'Shop fast charging adapters, high-capacity power banks, TWS Bluetooth wireless earbuds, USB-C multi-port hubs, and protective smartphone covers.',
       },
       {
         heading: '4K Security & Surveillance',
@@ -84,15 +88,15 @@ const DEFAULTS = {
   },
   'about-us': {
     paragraphs: [
-      "Welcome to IT Solutions Pakistan — your premier authorized retailer and trade supplier for genuine computing hardware, laptops, security surveillance systems, networking infrastructure, and smart technology solutions. Headquartered near Hafeez Center in Gulberg III, Lahore, with our regional branch in Burewala, we have built a trusted reputation across Pakistan for delivering 100% authentic tech products backed by official manufacturer warranties.",
-      "Whether you are a student looking for a reliable study laptop, a gamer seeking cutting-edge graphics performance, a corporate enterprise outfitting office workstations, or a homeowner installing 4K security camera surveillance, IT Solutions is your dedicated technology partner. We work directly with official brand distributors to ensure every item in our catalog meets the highest standards of authenticity, performance, and post-purchase customer care.",
-      "Our mission is simple: to make modern technology accessible, affordable, and worry-free for everyone across Pakistan. With fast Cash on Delivery (COD), express nationwide courier dispatch to 200+ cities, and dedicated WhatsApp technical support, we bridge the gap between world-class hardware and seamless shopping.",
+      "Welcome to IT Solutions Pakistan — your premier authorized retailer and trade supplier for genuine computing hardware, laptops, smartphone & tablet mobile accessories, 4K security surveillance systems, networking infrastructure, and smart energy solutions. Headquartered near Hafeez Center in Gulberg III, Lahore, with our regional branch in Burewala, we have built a trusted reputation across Pakistan for delivering 100% authentic technology products backed by official manufacturer warranties and transparent pricing.",
+      "Our comprehensive product catalog is curated to support students, gamers, IT professionals, corporate offices, and everyday consumers nationwide. Explore top-tier laptop computers & MacBooks, high-speed gaming PC components & 4K monitors, premium mobile phone accessories (fast chargers, power banks, TWS wireless earbuds, protective cases, and USB-C adapters), enterprise-grade Hikvision & EZVIZ CCTV security camera systems, high-performance Wi-Fi 6 networking routers, and hybrid solar energy inverters. We source directly from official authorized distributors to guarantee genuine performance and complete peace of mind.",
+      "Our mission is simple: to make world-class technology accessible, affordable, and hassle-free for everyone in Pakistan. With express nationwide Cash on Delivery (COD) to 200+ cities, hassle-free 7-day returns, and dedicated phone & WhatsApp technical support, IT Solutions is your reliable partner for all your computing, mobile, and electronics needs.",
     ],
     highlights: [
-      { title: 'Official Brand Warranty', description: '100% genuine products sourced directly from authorized distributors with official warranty coverage.' },
-      { title: 'Nationwide Delivery & COD', description: 'Fast, safe courier delivery to Lahore, Karachi, Islamabad, Rawalpindi, Burewala, and 200+ cities across Pakistan.' },
-      { title: 'Enterprise & Retail Hardware', description: 'From individual laptop sales to large-scale CCTV security installations, networking setups, and solar energy gear.' },
-      { title: 'Dedicated Technical Support', description: 'Our expert support team is available via phone and WhatsApp to guide you before and after every purchase.' },
+      { title: 'Official Brand Warranty', description: '100% genuine laptops, mobile accessories, and hardware sourced directly from authorized brand distributors with official warranty protection.' },
+      { title: 'Mobile & Tech Accessories', description: 'Premium fast chargers, high-capacity power banks, TWS wireless earbuds, USB-C adapters, and durable smartphone protection.' },
+      { title: 'Surveillance & Networking', description: '4K CCTV security camera installations, wireless PTZ dome sensors, DVR/NVR recorders, enterprise switches, and Wi-Fi 6 routers.' },
+      { title: 'Nationwide COD & Fast Shipping', description: 'Express courier dispatch with Cash on Delivery (COD) to Lahore, Karachi, Islamabad, Rawalpindi, Burewala, and 200+ cities.' },
     ],
     storeAddress: 'Office # 19, 2nd Floor, Fazal Trade Center, Near Hafeez Center, Gulberg III, Lahore, Punjab 54660, Pakistan',
     storeTimings: 'Monday – Saturday (10:00 AM – 8:00 PM PKT)',
