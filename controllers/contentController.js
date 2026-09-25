@@ -32,24 +32,24 @@ const DEFAULTS = {
     },
   },
   'homepage-seo': {
-    title: "Pakistan's Premier IT Hardware, Mobile Accessories & Technology Store",
-    intro: "Welcome to IT Solutions — your authorized supplier of genuine laptops, mobile phone accessories, office networking solutions, 4K security surveillance systems, and high-performance computing hardware in Pakistan. Whether you need fast smartphone chargers, home security cameras, or gaming laptops, we offer competitive pricing, official brand warranty, and nationwide Cash on Delivery.",
+    title: "Pakistan's Premier Store for Mobile Accessories, CCTV Cameras, Smart Home & Networking",
+    intro: "Welcome to IT Solutions — your authorized destination for genuine mobile accessories, CCTV security cameras, NVR video recorders, smart home appliances, networking devices, smart wearables, car accessories, and cooling electronics in Pakistan. Enjoy competitive pricing, official brand warranty, and fast nationwide Cash on Delivery.",
     columns: [
       {
-        heading: 'Laptops & Computing',
-        description: 'Explore Apple MacBook, Dell XPS, HP ProBook, Lenovo ThinkPad, and ASUS ROG gaming laptops with official international warranty and authentic power adapters.',
+        heading: 'Mobile & Audio Accessories',
+        description: 'Shop fast chargers & power adapters, charging cables, high-capacity power banks, TWS wireless earbuds, wired earphones, phone coolers, power strips, and audio adapters.',
       },
       {
-        heading: 'Mobile & Tech Accessories',
-        description: 'Shop fast charging adapters, high-capacity power banks, TWS Bluetooth wireless earbuds, USB-C multi-port hubs, and protective smartphone covers.',
+        heading: 'CCTV Cameras & NVR Recorders',
+        description: 'Secure your property with indoor, outdoor, indoor & outdoor hybrid cameras, battery & solar cameras, and multi-channel Network Video Recorders (NVR).',
       },
       {
-        heading: '4K Security & Surveillance',
-        description: 'Secure your home and business with Hikvision, EZVIZ, and IMOU 4K security cameras, wireless PTZ dome cameras, NVR recording units, and smart night-vision sensors.',
+        heading: 'Smart Home & Wearables',
+        description: 'Upgrade your living space with smart door locks, smart video doorbells, smart video door phones, and feature-rich smart watches.',
       },
       {
-        heading: 'Networking & Solar Energy',
-        description: 'Upgrade your connectivity with Wi-Fi 6 Gigabit routers, enterprise switches, and hybrid solar inverters for continuous uninterrupted power supply.',
+        heading: 'Networking, Car & Cooling Gear',
+        description: 'Stay connected and powered with Wi-Fi routers, network switches, Wi-Fi adapters, connectors & plugs, car chargers, and portable handheld cooling fans.',
       },
     ],
   },
@@ -88,14 +88,14 @@ const DEFAULTS = {
   },
   'about-us': {
     paragraphs: [
-      "Welcome to IT Solutions Pakistan — your premier authorized retailer and trade supplier for genuine computing hardware, laptops, smartphone & tablet mobile accessories, 4K security surveillance systems, networking infrastructure, and smart energy solutions. Headquartered near Hafeez Center in Gulberg III, Lahore, with our regional branch in Burewala, we have built a trusted reputation across Pakistan for delivering 100% authentic technology products backed by official manufacturer warranties and transparent pricing.",
-      "Our comprehensive product catalog is curated to support students, gamers, IT professionals, corporate offices, and everyday consumers nationwide. Explore top-tier laptop computers & MacBooks, high-speed gaming PC components & 4K monitors, premium mobile phone accessories (fast chargers, power banks, TWS wireless earbuds, protective cases, and USB-C adapters), enterprise-grade Hikvision & EZVIZ CCTV security camera systems, high-performance Wi-Fi 6 networking routers, and hybrid solar energy inverters. We source directly from official authorized distributors to guarantee genuine performance and complete peace of mind.",
-      "Our mission is simple: to make world-class technology accessible, affordable, and hassle-free for everyone in Pakistan. With express nationwide Cash on Delivery (COD) to 200+ cities, hassle-free 7-day returns, and dedicated phone & WhatsApp technical support, IT Solutions is your reliable partner for all your computing, mobile, and electronics needs.",
+      "Welcome to IT Solutions Pakistan — your authorized online destination and trade supplier for genuine mobile accessories, CCTV security cameras, video recorders, smart home appliances, networking devices, smart wearables, car accessories, and cooling electronics. Headquartered near Hafeez Center in Gulberg III, Lahore, with our regional branch in Burewala, we have built a trusted reputation across Pakistan for delivering 100% authentic products backed by official brand warranties.",
+      "Our comprehensive catalog is meticulously organized across 8 core product categories: Mobile Accessories (chargers & power adapters, charging cables, power banks, wireless earbuds, wired earphones, phone coolers, power strips & charging hubs, audio adapters & connectors); CCTV Cameras (indoor, outdoor, indoor & outdoor, battery & solar cameras); Video Recorders (Network Video Recorders / NVR); Smart Home Appliances (smart door locks, smart video doorbells, smart video door phones); Networking Devices (routers, network switches, Wi-Fi adapters, connectors & plugs); Smart Wearables (smart watches); Car Accessories (car chargers); and Fans & Cooling (portable handheld fans). Every item is sourced directly from official distributors to ensure top quality.",
+      "Our mission is to provide a seamless, reliable tech shopping experience for customers nationwide. Enjoy fast Cash on Delivery (COD) to 200+ cities across Pakistan, hassle-free 7-day returns, and direct phone & WhatsApp customer support whenever you need assistance.",
     ],
     highlights: [
-      { title: 'Official Brand Warranty', description: '100% genuine laptops, mobile accessories, and hardware sourced directly from authorized brand distributors with official warranty protection.' },
-      { title: 'Mobile & Tech Accessories', description: 'Premium fast chargers, high-capacity power banks, TWS wireless earbuds, USB-C adapters, and durable smartphone protection.' },
-      { title: 'Surveillance & Networking', description: '4K CCTV security camera installations, wireless PTZ dome sensors, DVR/NVR recorders, enterprise switches, and Wi-Fi 6 routers.' },
+      { title: 'Official Brand Warranty', description: '100% genuine electronics across all categories sourced directly from authorized brand suppliers with official warranty protection.' },
+      { title: 'Mobile & Wearable Tech', description: 'Fast chargers, power banks, wireless earbuds, charging cables, phone coolers, audio adapters, and feature-rich smart watches.' },
+      { title: 'CCTV, NVR & Smart Home', description: 'Indoor & outdoor CCTV cameras, solar cameras, NVR video recorders, smart door locks, video doorbells & video door phones.' },
       { title: 'Nationwide COD & Fast Shipping', description: 'Express courier dispatch with Cash on Delivery (COD) to Lahore, Karachi, Islamabad, Rawalpindi, Burewala, and 200+ cities.' },
     ],
     storeAddress: 'Office # 19, 2nd Floor, Fazal Trade Center, Near Hafeez Center, Gulberg III, Lahore, Punjab 54660, Pakistan',
