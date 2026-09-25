@@ -115,10 +115,31 @@ ${urls
   res.type('application/xml').send(body);
 }
 
+function extractMpnFromProduct(productName, specValue) {
+  if (specValue && String(specValue).trim()) {
+    return String(specValue).trim();
+  }
+  if (!productName) return null;
+  const modelPatterns = [
+    /\b([A-Z0-9]{2,10}-[A-Z0-9]{2,10}(?:-[A-Z0-9]{2,10})?)\b/i,
+    /\b([A-Z]{1,4}\d{2,5}[A-Z]{0,4})\b/i
+  ];
+  for (const pattern of modelPatterns) {
+    const match = productName.match(pattern);
+    if (match && match[1] && match[1].length >= 3) {
+      return match[1];
+    }
+  }
+  return null;
+}
+
 export async function getProductsFeedXml(req, res) {
   const origin = buildStoreUrl(req.business.slug);
   const [products] = await pool.query(
-    `SELECT p.id, p.name, p.slug, p.description, p.brand, p.price, p.discount_price, p.is_on_sale, p.stock, p.image, c.name AS category_name
+    `SELECT p.id, p.name, p.slug, p.description, p.brand, p.price, p.discount_price, p.is_on_sale, p.stock, p.image, c.name AS category_name,
+            (SELECT ps.value FROM product_specs ps 
+             WHERE ps.product_id = p.id AND LOWER(ps.label) IN ('model', 'mpn', 'part number', 'model number', 'sku') 
+             ORDER BY ps.id ASC LIMIT 1) AS spec_mpn
      FROM products p
      LEFT JOIN categories c ON p.category_id = c.id
      WHERE p.business_id = ? AND p.is_active = 1
@@ -141,6 +162,8 @@ export async function getProductsFeedXml(req, res) {
     const salePrice = isOnSale ? `${Number(p.discount_price).toFixed(2)} PKR` : null;
     const brand = escapeXml(p.brand || req.business.name || 'IT Solutions');
     const category = p.category_name ? escapeXml(p.category_name) : null;
+    const mpnValue = extractMpnFromProduct(p.name, p.spec_mpn);
+    const hasIdentifier = Boolean(mpnValue);
 
     let itemStr = `    <item>
       <g:id>${p.id}</g:id>
@@ -156,8 +179,12 @@ export async function getProductsFeedXml(req, res) {
     }
 
     itemStr += `\n      <g:brand>${brand}</g:brand>`;
-    itemStr += `\n      <g:mpn>${escapeXml(p.slug)}</g:mpn>`;
-    itemStr += `\n      <g:identifier_exists>false</g:identifier_exists>`;
+    if (hasIdentifier) {
+      itemStr += `\n      <g:mpn>${escapeXml(mpnValue)}</g:mpn>`;
+      itemStr += `\n      <g:identifier_exists>true</g:identifier_exists>`;
+    } else {
+      itemStr += `\n      <g:identifier_exists>false</g:identifier_exists>`;
+    }
     itemStr += `\n      <g:condition>new</g:condition>`;
 
     if (category) {
