@@ -29,6 +29,7 @@ import { resolveBusiness } from './middleware/tenant.js';
 import { requireCloudflare } from './middleware/cloudflare.js';
 import { getRobotsTxt, getSitemap, getProductsFeedXml, getLlmsTxt } from './controllers/seoController.js';
 import { prerenderPage } from './controllers/prerenderController.js';
+import { handleResizedUpload } from './utils/imageResizer.js';
 import { FRONTEND_URL, NODE_ENV } from './config/env.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -131,6 +132,7 @@ app.use(compression({
 }));
 app.use(cookieParser());
 app.use(express.json());
+app.use('/uploads', handleResizedUpload);
 app.use(
   '/uploads',
   express.static(path.join(__dirname, 'uploads'), {
