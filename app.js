@@ -30,6 +30,7 @@ import { requireCloudflare } from './middleware/cloudflare.js';
 import { getRobotsTxt, getSitemap, getProductsFeedXml, getLlmsTxt } from './controllers/seoController.js';
 import { prerenderPage } from './controllers/prerenderController.js';
 import { handleResizedUpload } from './utils/imageResizer.js';
+import { handleServerRedirects } from './middleware/redirects.js';
 import { FRONTEND_URL, NODE_ENV } from './config/env.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -143,6 +144,8 @@ app.use(
     },
   })
 );
+
+app.use(handleServerRedirects);
 
 // Railway's own container healthcheck (see Dockerfile) hits this directly, bypassing Cloudflare
 // — so it must stay reachable before requireCloudflare below, not after.
