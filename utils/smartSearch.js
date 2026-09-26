@@ -34,10 +34,20 @@ export function getSearchIndex(businessId, products) {
       p.name
         .replace(/[^\w\s]/g, ' ')
         .split(/\s+/)
-        .forEach((w) => w.length >= 3 && dictionarySet.add(w.toLowerCase()));
+        .forEach((w) => w.length >= 2 && dictionarySet.add(w.toLowerCase()));
     }
-    if (p.brand) dictionarySet.add(p.brand.toLowerCase());
-    if (p.category_name) dictionarySet.add(p.category_name.toLowerCase());
+    if (p.brand) {
+      p.brand
+        .replace(/[^\w\s]/g, ' ')
+        .split(/\s+/)
+        .forEach((w) => w.length >= 2 && dictionarySet.add(w.toLowerCase()));
+    }
+    if (p.category_name) {
+      p.category_name
+        .replace(/[^\w\s]/g, ' ')
+        .split(/\s+/)
+        .forEach((w) => w.length >= 2 && dictionarySet.add(w.toLowerCase()));
+    }
   }
 
   const fuseOptions = {

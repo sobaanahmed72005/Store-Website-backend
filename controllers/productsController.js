@@ -428,10 +428,6 @@ export async function getProducts(req, res) {
     where.push(`p.category_id IN (${categoryIds.map(() => '?').join(',')})`);
     params.push(...categoryIds);
   }
-  if (search) {
-    where.push('(p.name LIKE ? OR p.brand LIKE ? OR p.description LIKE ? OR c.name LIKE ? OR parent_c.name LIKE ?)');
-    params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
-  }
   if (featured) where.push('p.is_featured = 1');
   if (new_arrival) where.push('p.is_new_arrival = 1');
   if (on_sale) where.push('p.is_on_sale = 1');
@@ -476,7 +472,7 @@ export async function getProducts(req, res) {
   const whereSql = ' WHERE ' + where.join(' AND ');
 
   if (search) {
-    // Perform smart fuzzy search across candidate active products
+    // Perform smart fuzzy search & typo auto-correction across candidate active products
     const [candidateRows] = await pool.query(
       `SELECT p.*, c.name AS category_name, parent_c.name AS parent_category_name
        FROM products p
@@ -487,7 +483,19 @@ export async function getProducts(req, res) {
     );
 
     const smartResult = performSmartSearch(req.business.id, candidateRows, search);
-    const paginatedItems = smartResult.results.slice(offset, offset + limit);
+
+    let results = smartResult.results;
+    if (sort === 'price-asc') {
+      results = [...results].sort((a, b) => Number(a.discount_price ?? a.price) - Number(b.discount_price ?? b.price));
+    } else if (sort === 'price-desc') {
+      results = [...results].sort((a, b) => Number(b.discount_price ?? b.price) - Number(a.discount_price ?? a.price));
+    } else if (sort === 'newest') {
+      results = [...results].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+    } else if (sort === 'rating') {
+      results = [...results].sort((a, b) => Number(b.avg_rating || 0) - Number(a.avg_rating || 0));
+    }
+
+    const paginatedItems = results.slice(offset, offset + limit);
     const withExtras = await attachExtras(paginatedItems);
 
     const response = buildPaginatedResponse('products', withExtras, smartResult.total, page, limit);
