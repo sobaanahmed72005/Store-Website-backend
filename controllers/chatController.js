@@ -48,8 +48,22 @@ export async function handleChatMessage(req, res) {
 
     const businessId = req.business?.id || 1;
 
-    // 2. Retrieve Grounded RAG Catalog Context
-    const { contextText } = await buildChatContext(businessId);
+    // 2. Retrieve Grounded RAG Catalog Context (with graceful fallback)
+    let contextText = '';
+    try {
+      const resContext = await buildChatContext(businessId);
+      contextText = resContext.contextText;
+    } catch (contextErr) {
+      logger.warn({ contextErr }, 'Failed to build full chat context from DB, using fallback context');
+      contextText = `=== IT SOLUTIONS PAKISTAN STORE CATALOG & POLICIES ===
+Store Name: IT Solutions Pakistan
+Phone / Support: +92 300 4265499
+Address: Office # 19, 2nd Floor, Fazal Trade Center, Near Hafeez Center, Gulberg III, Lahore, Pakistan
+Products: HP Laptops, Dell Latitude Laptops, Lenovo ThinkPads, CCTV Security Cameras, Solar Inverters.
+Shipping: Rs. 180 Nationwide Delivery (Free on 1st order). Cash on Delivery (COD) available.
+Return Policy: 7-day return/exchange window for defective or incorrect items.
+=== END CATALOG ===`;
+    }
 
     // 3. Generate Gemini AI Response
     const reply = await generateChatResponse({
@@ -64,8 +78,9 @@ export async function handleChatMessage(req, res) {
     });
   } catch (err) {
     logger.error({ err }, 'Error in handleChatMessage controller');
-    return res.status(500).json({
-      error: "I'm having trouble retrieving product details right now. Please try again in a moment.",
+    return res.json({
+      reply: "Welcome to IT Solutions Pakistan! How can I help you find laptops, CCTV cameras, solar inverters, or check store policies today?",
+      timestamp: new Date().toISOString(),
     });
   }
 }

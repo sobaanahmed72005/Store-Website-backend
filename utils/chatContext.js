@@ -38,9 +38,9 @@ export async function buildChatContext(businessId) {
       [businessId]
     );
 
-    // 4. Fetch Active Products
+    // 4. Fetch Active Products (using SELECT * to be resilient against missing optional DB columns like dataset_text on production)
     const [products] = await pool.query(
-      `SELECT id, category_id, name, slug, brand, description, price, discount_price, is_on_sale, stock, dataset, dataset_text
+      `SELECT *
        FROM products
        WHERE business_id = ? AND is_active = 1
        ORDER BY is_featured DESC, created_at DESC`,

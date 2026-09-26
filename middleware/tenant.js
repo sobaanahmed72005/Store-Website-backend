@@ -61,7 +61,12 @@ export async function resolveBusiness(req, res, next) {
       return next();
     }
 
-    const [rows] = await pool.query('SELECT id, name, slug, status FROM businesses WHERE slug = ?', [slug]);
+    let [rows] = await pool.query('SELECT id, name, slug, status FROM businesses WHERE slug = ?', [slug]);
+    if (rows.length === 0) {
+      // Fallback to first active business (e.g. 'main') for custom domain deployments like itsolutions.com.pk
+      [rows] = await pool.query('SELECT id, name, slug, status FROM businesses WHERE status = "active" ORDER BY id ASC LIMIT 1');
+    }
+
     const expiresAt = Date.now() + CACHE_TTL_MS;
     if (rows.length === 0 || rows[0].status !== 'active') {
       cache.set(slug, { notFound: true, expiresAt });
