@@ -47,7 +47,12 @@ RULES:
 ${catalogContext}
 `;
 
-    const candidateModels = ['gemini-3.1-flash-lite', 'gemini-3.8-flash'];
+    const candidateModels = [
+      'gemini-flash-lite-latest',
+      'gemini-3.5-flash-lite',
+      'gemini-3.1-flash-lite',
+      'gemini-flash-latest',
+    ];
     let lastError = null;
 
     for (const modelName of candidateModels) {
@@ -92,9 +97,9 @@ ${catalogContext}
           },
         });
 
-        // 5-second timeout per model candidate to prevent lagging
+        // 4-second timeout per model candidate for super fast response
         const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error(`Model ${modelName} timed out after 5s`)), 5000)
+          setTimeout(() => reject(new Error(`Model ${modelName} timed out after 4s`)), 4000)
         );
 
         const result = await Promise.race([
@@ -112,13 +117,34 @@ ${catalogContext}
 
     if (lastError) throw lastError;
   } catch (err) {
-    logger.error({ err }, 'Gemini API call failed');
+    logger.error({ err }, 'Gemini API call failed, using smart grounded catalog fallback');
     
     const lower = message.trim().toLowerCase();
-    if (['hi', 'hello', 'hey', 'aoa', 'assalam o alaikum'].includes(lower)) {
-      return "Hello! Welcome to IT Solutions Pakistan! How can I help you find laptops, CCTV cameras, solar inverters, or store details today?";
+    
+    if (['hi', 'hello', 'hey', 'aoa', 'assalam', 'how are you'].some((g) => lower.includes(g))) {
+      return "Hello! Welcome to IT Solutions Pakistan 👋 How can I help you find laptops, CCTV cameras, solar inverters, or check store details today?";
     }
 
-    return "Welcome to IT Solutions Pakistan! Feel free to browse our products or contact our customer support team at +92 300 4265499!";
+    if (lower.includes('laptop') || lower.includes('hp') || lower.includes('dell') || lower.includes('lenovo')) {
+      return "Yes, we sell laptops! We carry top brands including HP ProBook, Dell Latitude, and Lenovo ThinkPad in stock with nationwide delivery. Check out our laptops at /category/laptops or ask me for specific specs!";
+    }
+
+    if (lower.includes('cctv') || lower.includes('camera') || lower.includes('security')) {
+      return "Yes, we offer CCTV security cameras and surveillance systems! You can view our security items at /category/cctv-cameras or call our sales line at +92 300 4265499!";
+    }
+
+    if (lower.includes('solar') || lower.includes('inverter')) {
+      return "Yes, we supply solar inverters and energy solutions! Ask me about specs, or explore our solar products at /category/solar-inverters!";
+    }
+
+    if (lower.includes('shipping') || lower.includes('delivery') || lower.includes('cod') || lower.includes('fee')) {
+      return "We offer Rs. 180 Nationwide Delivery (Free on 1st order) with Cash on Delivery (COD) available across Pakistan!";
+    }
+
+    if (lower.includes('return') || lower.includes('warranty') || lower.includes('exchange')) {
+      return "We provide a 7-day return and exchange policy for defective or incorrect items! Contact us at +92 300 4265499 for quick claims assistance.";
+    }
+
+    return "Hello! I am your AI assistant for IT Solutions Pakistan. How can I help you find products, specs, prices, or store policies today? Feel free to ask about our laptops, CCTV systems, or solar inverters!";
   }
 }
