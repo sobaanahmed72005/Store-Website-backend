@@ -34,10 +34,13 @@
     "db:migrate-product-content-image": "node sql/migrate-product-content-image.js",
     "db:migrate-product-content-video": "node sql/migrate-product-content-video.js",
     "db:migrate-product-is-active": "node sql/migrate-product-is-active.js",
-    "db:migrate-courier-shippers": "node sql/migrate-courier-shippers.js"
+    "db:migrate-courier-shippers": "node sql/migrate-courier-shippers.js",
+    "db:migrate-product-dataset-text": "node sql/migrate-product-dataset-text.js",
+    "pdf:index": "node scripts/indexPdfDatasets.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1087.0",
+    "@google/generative-ai": "^0.24.1",
     "@sentry/node": "^10.65.0",
     "bcryptjs": "^3.0.2",
     "compression": "^1.8.1",
@@ -53,6 +56,7 @@
     "mysql2": "^3.22.5",
     "nodemailer": "^9.0.1",
     "otplib": "^13.4.1",
+    "pdf-parse": "^2.4.5",
     "pdfkit": "^0.19.1",
     "pino": "^10.3.1",
     "pino-http": "^11.0.0",

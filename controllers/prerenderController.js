@@ -254,7 +254,7 @@ async function renderProduct(businessId, slug, origin) {
       '@type': 'Offer',
       url: canonicalUrl,
       priceCurrency: 'PKR',
-      price: String(effectivePrice),
+      price: String(Number(effectivePrice)),
       priceValidUntil: getPriceValidUntil(),
       itemCondition: 'https://schema.org/NewCondition',
       availability: inStock ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',

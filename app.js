@@ -25,6 +25,7 @@ import discountCodesRouter from './routes/discountCodes.js';
 import newsletterRouter from './routes/newsletter.js';
 import contactRouter from './routes/contact.js';
 import blogRouter from './routes/blog.js';
+import chatRouter from './routes/chat.js';
 import { resolveBusiness } from './middleware/tenant.js';
 import { requireCloudflare } from './middleware/cloudflare.js';
 import { getRobotsTxt, getSitemap, getProductsFeedXml, getLlmsTxt } from './controllers/seoController.js';
@@ -180,6 +181,7 @@ app.use('/api/discount-codes', discountCodesRouter);
 app.use('/api/newsletter', newsletterRouter);
 app.use('/api/contact', contactRouter);
 app.use('/api/blog', blogRouter);
+app.use('/api/chat', chatRouter);
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Not found' });

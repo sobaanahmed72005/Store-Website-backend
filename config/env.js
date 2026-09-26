@@ -87,3 +87,7 @@ export const SMTP_FROM = process.env.SMTP_FROM || 'Store <no-reply@example.com>'
 // Error tracking (https://sentry.io). Leave unset to disable — errors are still logged locally
 // either way (see utils/logger.js), this just adds off-process alerting/aggregation on top.
 export const SENTRY_DSN = process.env.SENTRY_DSN || null;
+
+// Storefront AI Chatbot (Google Gemini API key)
+export const GEMINI_API_KEY = process.env.GEMINI_API_KEY || null;
+
